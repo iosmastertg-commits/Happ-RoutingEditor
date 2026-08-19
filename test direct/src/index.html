@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Rule Flow Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚡</span>
+      <span class="brand-title">Rule Flow Editor</span>
+    </div>
+    <div class="topbar-hint">Перетаскивайте домены и страны в «Мои правила»</div>
+  </header>
+
+  <nav class="app-tabs">
+    <button class="app-tab active" data-view="editor">Редактор</button>
+    <button class="app-tab" data-view="converter">Конвертер</button>
+  </nav>
+
+  <main class="board" id="view-editor">
+
+    <!-- COLUMN 1 — MY RULES -->
+    <section class="col" id="col-rules">
+      <div class="col-head">
+        <h2>Мои правила <span class="count" id="rules-count">0</span></h2>
+        <div class="col-actions">
+          <button class="btn ghost" id="btn-import" title="Импорт">Импорт</button>
+          <button class="btn ghost" id="btn-export" title="Экспорт в txt">Экспорт</button>
+          <button class="btn ghost" id="btn-export-json" title="Экспорт в JSON">JSON</button>
+          <button class="btn link-happ" id="btn-link-happ" title="Скопировать ссылку маршрутизации Happ">⚡ Happ</button>
+          <button class="btn link-incy" id="btn-link-incy" title="Скопировать ссылку маршрутизации Incy">⚡ Incy</button>
+        </div>
+      </div>
+      <div class="section-tabs">
+        <button class="section-tab active" data-section="Direct">Direct <span class="tab-count">0</span></button>
+        <button class="section-tab" data-section="Proxy">Proxy <span class="tab-count">0</span></button>
+        <button class="section-tab" data-section="Block">Block <span class="tab-count">0</span></button>
+      </div>
+
+      <div class="quick-add">
+        <select id="qa-type">
+          <option value="domain">domain</option>
+          <option value="geosite">geosite</option>
+          <option value="geoip">geoip</option>
+          <option value="regexp">regexp</option>
+          <option value="keyword">keyword</option>
+          <option value="plain">plain</option>
+        </select>
+        <input type="text" id="qa-input" placeholder="значение, напр. example.com" />
+        <button class="btn primary" id="qa-add">＋</button>
+      </div>
+
+      <ul class="rules-list" id="rules-list"></ul>
+
+      <div class="empty-hint" id="rules-empty">
+        Список пуст. Добавьте правило выше или перетащите из соседних колонок →
+      </div>
+    </section>
+
+    <!-- COLUMN 2 — GEOSITE -->
+    <section class="col" id="col-geosite">
+      <div class="col-head">
+        <h2>Geosite</h2>
+      </div>
+      <div class="url-bar">
+        <input type="text" id="geosite-url"
+               value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" />
+        <button class="btn primary" id="geosite-load">Загрузить</button>
+        <button class="btn ghost" id="geosite-file">Открыть файл</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="geosite-filter" placeholder="фильтр по категориям…" />
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="geosite-search" placeholder="🔍 поиск по доменам, напр. 2ip.ru…" />
+      </div>
+      <div class="status" id="geosite-status"></div>
+      <div class="tree" id="geosite-tree"></div>
+    </section>
+
+    <!-- COLUMN 3 — GEOIP -->
+    <section class="col" id="col-geoip">
+      <div class="col-head">
+        <h2>GeoIP</h2>
+      </div>
+      <div class="url-bar">
+        <input type="text" id="geoip-url"
+               value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" />
+        <button class="btn primary" id="geoip-load">Загрузить</button>
+        <button class="btn ghost" id="geoip-file">Открыть файл</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="geoip-filter" placeholder="фильтр стран…" />
+      </div>
+      <div class="status" id="geoip-status"></div>
+      <div class="tiles" id="geoip-tiles"></div>
+    </section>
+
+  </main>
+
+  <!-- CONVERTER VIEW -->
+  <main class="converter" id="view-converter" hidden>
+    <div class="conv-layout">
+
+      <section class="conv-col">
+        <div class="conv-card conv-card-rules">
+          <div class="conv-card-head">
+            <span class="conv-card-title">Правила <span class="count" id="conv-src-count">0</span></span>
+            <div class="conv-card-actions">
+              <button class="btn ghost" id="conv-import" title="Импорт">Импорт</button>
+              <button class="btn ghost" id="conv-export" title="Экспорт в txt">Экспорт</button>
+              <button class="btn ghost" id="conv-src-export-json" title="Экспорт в JSON">JSON</button>
+              <button class="btn link-happ" id="conv-link-src-happ" title="Скопировать ссылку маршрутизации Happ">⚡ Happ</button>
+              <button class="btn link-incy" id="conv-link-src-incy" title="Скопировать ссылку маршрутизации Incy">⚡ Incy</button>
+            </div>
+          </div>
+          <div class="section-tabs conv-section-tabs">
+            <button class="section-tab active" data-section="Direct">Direct <span class="tab-count">0</span></button>
+            <button class="section-tab" data-section="Proxy">Proxy <span class="tab-count">0</span></button>
+            <button class="section-tab" data-section="Block">Block <span class="tab-count">0</span></button>
+          </div>
+          <ul class="rules-list" id="conv-src-list"></ul>
+          <div class="empty-hint" id="conv-src-empty">Список пуст. Импортируйте конфиг или добавьте правила в редакторе.</div>
+        </div>
+        <div class="conv-card conv-card-dat">
+          <div class="conv-card-head"><span class="conv-card-title">Исходные Geosite / Geoip</span></div>
+          <div class="conv-field">
+            <label>Geositeurl</label>
+            <input type="text" id="conv-src-geosite"
+                   value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" />
+          </div>
+          <div class="conv-field">
+            <label>Geoipurl</label>
+            <input type="text" id="conv-src-geoip"
+                   value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" />
+          </div>
+          <div class="conv-load-row">
+            <button class="btn primary" id="conv-load-dats">Загрузить .dat</button>
+            <button class="btn ghost" id="conv-file-geosite">Файл geosite</button>
+            <button class="btn ghost" id="conv-file-geoip">Файл geoip</button>
+          </div>
+          <div class="status" id="conv-status"></div>
+        </div>
+      </section>
+
+      <div class="conv-mid">
+        <button class="btn primary conv-run-btn" id="conv-run">Конвертировать ➜</button>
+        <div class="conv-stats" id="conv-stats"></div>
+      </div>
+
+      <section class="conv-col">
+        <div class="conv-card conv-card-rules">
+          <div class="conv-card-head">
+            <span class="conv-card-title">Правила <span class="count" id="conv-res-count">0</span></span>
+            <div class="conv-card-actions">
+              <button class="btn ghost" id="conv-export-txt" title="Экспорт в txt">Экспорт</button>
+              <button class="btn ghost" id="conv-export-json" title="Экспорт в JSON">JSON</button>
+              <button class="btn link-happ" id="conv-link-happ" title="Скопировать ссылку маршрутизации Happ">⚡ Happ</button>
+              <button class="btn link-incy" id="conv-link-incy" title="Скопировать ссылку маршрутизации Incy">⚡ Incy</button>
+            </div>
+          </div>
+          <div class="section-tabs conv-section-tabs">
+            <button class="section-tab active" data-section="Direct">Direct <span class="tab-count">0</span></button>
+            <button class="section-tab" data-section="Proxy">Proxy <span class="tab-count">0</span></button>
+            <button class="section-tab" data-section="Block">Block <span class="tab-count">0</span></button>
+          </div>
+          <ul class="rules-list" id="conv-res-list"></ul>
+          <div class="empty-hint" id="conv-res-empty">Нажмите «Конвертировать» — здесь появится новый список.</div>
+        </div>
+        <div class="conv-card conv-card-dat">
+          <div class="conv-card-head"><span class="conv-card-title">Новые Geosite / Geoip</span></div>
+          <div class="conv-field">
+            <label>Geositeurl</label>
+            <input type="text" id="conv-new-geosite"
+                   value="https://github.com/iosmastertg-commits/geoip/blob/main/test2.dat" />
+          </div>
+          <div class="conv-field">
+            <label>Geoipurl</label>
+            <input type="text" id="conv-new-geoip"
+                   value="https://github.com/iosmastertg-commits/geoip/blob/main/geoip.dat" />
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Import modal -->
+  <div class="modal-backdrop" id="import-modal" hidden>
+    <div class="modal">
+      <h3>Импорт правил</h3>
+      <div class="modal-tabs">
+        <button class="tab active" data-tab="text">Текст</button>
+        <button class="tab" data-tab="url">URL</button>
+        <button class="tab" data-tab="file">Файл</button>
+        <button class="tab" data-tab="link">Ссылка</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-pane active" data-pane="text">
+          <textarea id="import-textarea" placeholder="Вставьте правила построчно или целиком JSON&#10;&#10;domain:example.com&#10;geosite:google&#10;1.1.1.1"></textarea>
+        </div>
+        <div class="tab-pane" data-pane="url">
+          <input type="text" id="import-url" placeholder="https://…/rules.txt" />
+          <button class="btn ghost" id="import-url-fetch">Загрузить из URL</button>
+        </div>
+        <div class="tab-pane" data-pane="file">
+          <button class="btn ghost" id="import-file-pick">Выбрать файл…</button>
+          <div class="import-hint">Поддерживаются .txt (по строкам) и .json (секции Direct/Proxy/Block)</div>
+          <div class="status" id="import-file-status"></div>
+        </div>
+        <div class="tab-pane" data-pane="link">
+          <input type="text" id="import-link" placeholder="happ://routing/onadd/…" />
+          <div class="import-hint">Ссылка маршрутизации Happ/Incy: happ://routing/onadd/&lt;base64&gt;</div>
+        </div>
+      </div>
+      <label class="replace-opt"><input type="checkbox" id="import-replace" /> заменить текущие правила</label>
+      <div class="modal-actions">
+        <button class="btn ghost" id="import-cancel">Отмена</button>
+        <button class="btn primary" id="import-apply">Импортировать</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toast-wrap"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

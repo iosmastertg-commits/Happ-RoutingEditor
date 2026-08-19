@@ -1,0 +1,34 @@
+{
+  "name": "rule-flow-editor",
+  "version": "1.0.0",
+  "description": "Visual rule editor for proxy/routing with geosite/geoip .dat support",
+  "main": "main.js",
+  "author": "Rule Flow",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:nsis": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.ruleflow.editor",
+    "productName": "RuleFlowEditor",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*"
+    ],
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "portable": {
+      "artifactName": "RuleFlowEditor.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  }
+}

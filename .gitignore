@@ -1,0 +1,15 @@
+# Сборки и зависимости
+node_modules/
+
+# Артефакты сборки electron-builder
+/test direct/dist/
+/test direct/dist2/
+
+# Личные данные и тестовые файлы (не для публичного репозитория)
+/1.json
+/rules2.json
+/rule-new.txt
+/incy-routing-link.txt
+/*.dat
+/test direct/1.txt
+/test direct/.claude/
