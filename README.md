@@ -34,4 +34,3 @@ npm run dist     # сборка portable exe -> dist/RuleFlowEditor.exe
 
 - `RuleFlowEditor.exe` — готовая portable-сборка Windows x64.
 - `test direct/` — исходники Electron-приложения (`main.js`, `preload.js`, `src/`).
-- `docs/superpowers/specs/` — проектные спеки.
