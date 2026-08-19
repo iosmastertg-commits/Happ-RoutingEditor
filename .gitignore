@@ -1,6 +1,9 @@
 # Сборки и зависимости
 node_modules/
 
+# Внутренние документы (спеки)
+docs/
+
 # Артефакты сборки electron-builder
 /test direct/dist/
 /test direct/dist2/
