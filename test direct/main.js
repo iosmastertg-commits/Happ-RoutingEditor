@@ -35,12 +35,20 @@ async function download(url) {
   return new Uint8Array(ab);
 }
 
+// Users paste github.com "blob" page links; those return HTML, not the file.
+// Rewrite them to raw.githubusercontent.com so the bytes are the real asset.
+function normalizeGithubUrl(url) {
+  const m = url.match(/^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/blob\/([^\/]+)\/(.+)$/i);
+  if (!m) return url;
+  return 'https://raw.githubusercontent.com/' + m[1] + '/' + m[2] + '/' + m[3] + '/' + m[4];
+}
+
 // ---- IPC ----
 
 ipcMain.handle('geosite:load', async (_e, { url, fileData }) => {
   let buf;
   if (fileData) buf = new Uint8Array(fileData);
-  else buf = await download(url);
+  else buf = await download(normalizeGithubUrl(url));
   const categories = parseGeoSiteList(buf);
   geositeStore = new Map();
   const meta = [];
@@ -97,7 +105,7 @@ ipcMain.handle('geosite:removeDomain', async (_e, { code, index }) => {
 ipcMain.handle('geoip:load', async (_e, { url, fileData }) => {
   let buf;
   if (fileData) buf = new Uint8Array(fileData);
-  else buf = await download(url);
+  else buf = await download(normalizeGithubUrl(url));
   geoipStore = parseGeoIPList(buf);
   const countries = geoipStore
     .map((c) => ({ code: c.code.toUpperCase(), count: c.cidrs.length }))
