@@ -1383,7 +1383,11 @@ input[type="text"]:focus, textarea:focus, select:focus {
   cursor: pointer;
   transition: transform .15s cubic-bezier(.2,.8,.3,1), box-shadow .15s ease, filter .15s ease;
 }
-.update-btn-green:hover { filter: brightness(1.07); box-shadow: 0 8px 24px rgba(52, 199, 89, 0.45); }
+.btn.update-btn-green:hover {
+  background: linear-gradient(180deg, #3dd666, #2fb554) !important;   /* always green on hover */
+  border-color: transparent !important;
+  box-shadow: 0 8px 24px rgba(52, 199, 89, 0.5);
+}
 .update-btn-green:active { transform: scale(.97); }
 .update-btn-green[disabled] { opacity: .6; cursor: default; transform: none; }
 .update-progress { display: flex; align-items: center; gap: 10px; }
