@@ -16,5 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   saveText: (payload) => ipcRenderer.invoke('dialog:saveText', payload),
   saveDat: (payload) => ipcRenderer.invoke('dialog:saveDat', payload),
   encodeDat: (payload) => ipcRenderer.invoke('dat:encode', payload),
-  clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text)
+  clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: (url) => ipcRenderer.invoke('update:install', url),
+  updateInstallBytes: (bytes) => ipcRenderer.invoke('update:installBytes', bytes)
 });

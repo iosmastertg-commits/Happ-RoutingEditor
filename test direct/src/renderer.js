@@ -2164,3 +2164,68 @@ $('#gf-import-dat-file').addEventListener('click', async () => {
   if (!f) return;
   gfImportDat({ fileData: f.data }, f.path.split('\\').pop());
 });
+
+/* ============================ Auto-update ============================ */
+const updateModal = $('#update-modal');
+
+function updateProgressShow(label, pct) {
+  const wrap = $('#update-progress');
+  wrap.hidden = false;
+  $('#update-progress-label').textContent = label;
+  $('#update-progress-fill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+async function installUpdate(url) {
+  const btn = $('#update-install');
+  btn.disabled = true;
+  updateProgressShow('Скачивание…', 4);
+  try {
+    // stream the download to main via a data chunk list so we can show progress
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const total = Number(res.headers.get('content-length')) || 0;
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      if (total) updateProgressShow('Скачивание… ' + Math.round((got / total) * 100) + '%', (got / total) * 96);
+    }
+    updateProgressShow('Установка — приложение сейчас перезапустится…', 98);
+    const merged = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) { merged.set(c, off); off += c.length; }
+    // hand the bytes to main; it writes them and swaps the exe after quit
+    await window.api.updateInstallBytes(Array.from(merged));
+  } catch (err) {
+    btn.disabled = false;
+    $('#update-progress').hidden = true;
+    toast('Ошибка обновления: ' + err.message, 'err', 6000);
+  }
+}
+
+function showUpdateModal(info) {
+  $('#update-newver').textContent = 'v' + info.version;
+  $('#update-curver').textContent = 'v' + (window.appVersion || '');
+  const notes = String(info.notes || '').replace(/\r/g, '');
+  $('#update-notes').textContent = notes || 'Исправления и улучшения.';
+  $('#update-progress').hidden = true;
+  const btn = $('#update-install');
+  btn.disabled = false;
+  btn.onclick = () => installUpdate(info.url);
+  updateModal.hidden = false;
+}
+
+$('#update-close').addEventListener('click', () => { updateModal.hidden = true; });
+updateModal.addEventListener('click', (e) => { if (e.target === updateModal) updateModal.hidden = true; });
+
+// Startup check — non-blocking, silent on failure/offline
+setTimeout(async () => {
+  try {
+    const info = await window.api.updateCheck();
+    if (info && info.available) showUpdateModal(info);
+  } catch (_e) { /* offline — skip */ }
+}, 2500);

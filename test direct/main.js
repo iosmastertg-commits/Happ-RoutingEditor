@@ -3,11 +3,94 @@
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const { parseGeoSiteList, parseGeoIPList, encodeGeoSiteList, encodeGeoIPList } = require('./src/datparser');
 
 // In-memory stores so the renderer stays light; domains served lazily per category.
 let geositeStore = new Map();   // code -> [{type, value}]
 let geoipStore = [];            // [{code, cidrs}]
+
+// ---- Auto-update (GitHub Releases) ----
+// The distributed build is a single portable .exe named RuleFlowEditor-<version>.exe.
+// Update flow: fetch latest release → compare semver → on demand download the
+// new exe next to the running one → spawn cmd script that waits for this
+// process to exit, replaces the old exe (keeping the old install path/name),
+// starts the new version and deletes itself.
+const UPDATER_REPO = 'iosmastertg-commits/Happ-RoutingEditor';
+
+function cmpSemver(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+  }
+  return 0;
+}
+
+async function checkForUpdate() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${UPDATER_REPO}/releases/latest`, {
+      headers: { 'User-Agent': 'RuleFlowEditor-Updater' },
+      redirect: 'follow'
+    });
+    if (!res.ok) return { available: false };
+    const rel = await res.json();
+    if (!rel || !rel.tag_name || Array.isArray(rel)) return { available: false };
+    const latest = rel.tag_name.replace(/^v/i, '');
+    const current = app.getVersion();
+    if (cmpSemver(latest, current) <= 0) return { available: false };
+    // Prefer an exact-name asset, else any .exe asset in the release.
+    let asset = (rel.assets || []).find((a) => /\.exe$/i.test(a.name));
+    if (!asset) return { available: false };
+    return {
+      available: true,
+      version: latest,
+      notes: typeof rel.body === 'string' ? rel.body.slice(0, 4000) : '',
+      url: asset.browser_download_url,
+      size: asset.size,
+      name: asset.name
+    };
+  } catch (_e) {
+    return { available: false };   // offline / rate-limited: silently skip
+  }
+}
+
+function batEscape(p) { return p.replace(/%/g, '%%'); }
+
+async function performUpdate(buf) {
+  const selfPath = process.execPath;
+  // In dev (`npm start`) electron.exe lives in node_modules — updating makes no sense.
+  if (!/\.exe$/i.test(selfPath) || selfPath.includes('node_modules')) {
+    throw new Error('Обновление доступно только в установленной версии (.exe)');
+  }
+  if (!Buffer.isBuffer(buf)) throw new Error('Неверные данные обновления');
+  const dir = path.dirname(selfPath);
+  const tmpPath = path.join(dir, 'update-' + Date.now() + '.exe.new');
+  fs.writeFileSync(tmpPath, buf);
+
+  // Batch script: wait for the app to exit → replace exe under its CURRENT name
+  // → start it → delete temp + self.
+  const batPath = path.join(dir, 'ruleflow-update-' + Date.now() + '.cmd');
+  const script = [
+    '@echo off',
+    'chcp 65001 >nul',
+    ':waitloop',
+    `tasklist /FI "PID eq ${process.pid}" | find /I "${process.pid}" >nul`,
+    'if not errorlevel 1 (',
+    '  timeout /t 1 /nobreak >nul',
+    '  goto waitloop',
+    ')',
+    `move /y "${batEscape(tmpPath)}" "${batEscape(selfPath)}"`,
+    `start "" "${batEscape(selfPath)}"`,
+    `del "%~f0"`
+  ].join('\r\n');
+  fs.writeFileSync(batPath, script, 'utf8');
+
+  // Detach: the batch outlives us after we quit.
+  const child = execFile('cmd.exe', ['/c', batPath], { windowsHide: true, detached: true });
+  child.unref();
+  setTimeout(() => app.quit(), 300);   // give IPC reply time to reach renderer
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -181,6 +264,34 @@ ipcMain.handle('dialog:saveDat', async (_e, { defaultName, buffer }) => {
 
 ipcMain.handle('clipboard:write', (_e, text) => {
   clipboard.writeText(String(text));
+  return true;
+});
+
+// ---- Auto-update IPC ----
+ipcMain.handle('update:check', async () => {
+  return checkForUpdate();
+});
+
+ipcMain.handle('update:install', async (_e, url) => {
+  if (!/^https:\/\/github\.com\/|^https:\/\/api\.github\.com\/|^https:\/\/objects\.githubusercontent\.com\//.test(String(url))) {
+    throw new Error('Недопустимый URL обновления');
+  }
+  const res = await fetch(String(url), { redirect: 'follow', headers: { 'User-Agent': 'RuleFlowEditor-Updater' } });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' при скачивании обновления');
+  const ab = await res.arrayBuffer();
+  await performUpdate(Buffer.from(ab));
+  return true;
+});
+
+// Renderer streams the download (for progress UI) and hands over the bytes.
+ipcMain.handle('update:installBytes', async (_e, bytes) => {
+  if (!Array.isArray(bytes) || !(bytes instanceof Array) || !bytes.length) {
+    throw new Error('Пустой файл обновления');
+  }
+  if (bytes.length > 400 * 1024 * 1024) {
+    throw new Error('Файл обновления слишком большой');
+  }
+  await performUpdate(Buffer.from(bytes));
   return true;
 });
 

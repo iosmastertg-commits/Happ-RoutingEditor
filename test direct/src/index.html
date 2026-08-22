@@ -341,6 +341,25 @@
     </div>
   </div>
 
+  <!-- UPDATE MODAL — shown at startup when a newer GitHub release exists -->
+  <div class="modal-backdrop" id="update-modal" hidden>
+    <div class="modal update-modal" data-liquid-glass>
+      <button class="update-close" id="update-close" title="Закрыть">✕</button>
+      <div class="update-badge">
+        <span class="update-arrow">↑</span>
+        Доступна новая версия
+      </div>
+      <h3 class="update-version"><span id="update-newver"></span></h3>
+      <div class="update-sub">У вас: <b id="update-curver"></b> · обновление заменит текущую версию автоматически</div>
+      <pre class="update-notes" id="update-notes"></pre>
+      <div class="update-progress" id="update-progress" hidden>
+        <div class="update-progress-bar"><div class="update-progress-fill" id="update-progress-fill"></div></div>
+        <span class="update-progress-label" id="update-progress-label">Скачивание…</span>
+      </div>
+      <button class="btn update-btn-green" id="update-install">Обновить</button>
+    </div>
+  </div>
+
   <script src="liquidglass.js"></script>
   <script src="renderer.js"></script>
 </body>
