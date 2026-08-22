@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('api', {
   encodeDat: (payload) => ipcRenderer.invoke('dat:encode', payload),
   clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text),
   updateCheck: () => ipcRenderer.invoke('update:check'),
-  updateInstall: (url) => ipcRenderer.invoke('update:install', url),
-  updateInstallBytes: (bytes) => ipcRenderer.invoke('update:installBytes', bytes)
+  updateInstall: (payload) => ipcRenderer.invoke('update:install', payload),
+  appVersion: () => ipcRenderer.invoke('app:getVersion'),
+  onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, label, pct) => cb(label, pct))
 });

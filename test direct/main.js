@@ -13,10 +13,12 @@ let geoipStore = [];            // [{code, cidrs}]
 // ---- Auto-update (GitHub Releases) ----
 // The distributed build is a single portable .exe named RuleFlowEditor-<version>.exe.
 // Update flow: fetch latest release → compare semver → on demand download the
-// new exe next to the running one → spawn cmd script that waits for this
-// process to exit, replaces the old exe (keeping the old install path/name),
-// starts the new version and deletes itself.
+// new exe in the MAIN process (CSP/CORS-free, with progress relayed to the
+// renderer over IPC) next to the running one → spawn cmd script that waits for
+// this process to exit, replaces the old exe (keeping the old install
+// path/name), starts the new version and deletes itself.
 const UPDATER_REPO = 'iosmastertg-commits/Happ-RoutingEditor';
+let updateWin = null;            // window to receive update:progress events
 
 function cmpSemver(a, b) {
   const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
@@ -57,37 +59,90 @@ async function checkForUpdate() {
 
 function batEscape(p) { return p.replace(/%/g, '%%'); }
 
-async function performUpdate(buf) {
+let updating = false;
+
+async function performUpdate(downloadUrl, expectedSize, win) {
+  if (updating) throw new Error('Обновление уже выполняется');
+  updating = true;
   const selfPath = process.execPath;
   // In dev (`npm start`) electron.exe lives in node_modules — updating makes no sense.
   if (!/\.exe$/i.test(selfPath) || selfPath.includes('node_modules')) {
+    updating = false;
     throw new Error('Обновление доступно только в установленной версии (.exe)');
   }
-  if (!Buffer.isBuffer(buf)) throw new Error('Неверные данные обновления');
   const dir = path.dirname(selfPath);
   const tmpPath = path.join(dir, 'update-' + Date.now() + '.exe.new');
-  fs.writeFileSync(tmpPath, buf);
+  const sendProgress = (label, pct) => {
+    try { if (win && !win.isDestroyed()) win.webContents.send('update:progress', label, pct); } catch (_) {}
+  };
+
+  let buf;
+  try {
+    // Download in main: no CSP/CORS applies here. Stream to disk so a huge
+    // file doesn't sit fully in memory, and relay progress for the UI bar.
+    sendProgress('Скачивание…', 3);
+    const res = await fetch(downloadUrl, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'RuleFlowEditor-Updater' }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' при скачивании обновления');
+    const total = Number(res.headers.get('content-length')) || expectedSize || 0;
+    const reader = res.body.getReader();
+    const fd = fs.openSync(tmpPath, 'w');
+    let got = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fs.writeSync(fd, value);
+        got += value.length;
+        if (total > 0) {
+          sendProgress('Скачивание… ' + Math.round((got / total) * 100) + '%', (got / total) * 92);
+        } else {
+          sendProgress('Скачивание… ' + (got / 1048576).toFixed(1) + ' МБ', Math.min(90, 4 + (got / 1048576)));
+        }
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+    // Integrity gates before anything destructive:
+    if (expectedSize && got !== expectedSize) {
+      throw new Error(`Файл скачан не полностью (${got} из ${expectedSize} байт). Попробуйте ещё раз.`);
+    }
+    if (!(buf = fs.readFileSync(tmpPath)).length) throw new Error('Пустой файл обновления');
+    if (buf.length < 2 || buf[0] !== 0x4d || buf[1] !== 0x5a) {
+      throw new Error('Скачанный файл не является приложением Windows (.exe)');
+    }
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    updating = false;
+    throw err;
+  }
 
   // Batch script: wait for the app to exit → replace exe under its CURRENT name
-  // → start it → delete temp + self.
+  // → start it → delete temp + self. ping is used instead of `timeout` because
+  // timeout fails under redirected stdin and would hot-spin the loop.
+  sendProgress('Установка — приложение сейчас перезапустится…', 97);
   const batPath = path.join(dir, 'ruleflow-update-' + Date.now() + '.cmd');
   const script = [
     '@echo off',
-    'chcp 65001 >nul',
     ':waitloop',
     `tasklist /FI "PID eq ${process.pid}" | find /I "${process.pid}" >nul`,
     'if not errorlevel 1 (',
-    '  timeout /t 1 /nobreak >nul',
+    '  ping -n 2 127.0.0.1 >nul',
     '  goto waitloop',
     ')',
-    `move /y "${batEscape(tmpPath)}" "${batEscape(selfPath)}"`,
+    `move /y "${batEscape(tmpPath)}" "${batEscape(selfPath)}" >nul`,
+    `if exist "${batEscape(tmpPath)}" del "${batEscape(tmpPath)}"`,
     `start "" "${batEscape(selfPath)}"`,
     `del "%~f0"`
   ].join('\r\n');
-  fs.writeFileSync(batPath, script, 'utf8');
+  fs.writeFileSync(batPath, script);
 
-  // Detach: the batch outlives us after we quit.
-  const child = execFile('cmd.exe', ['/c', batPath], { windowsHide: true, detached: true });
+  // Detach: the batch outlives us after we quit. stdio ignored so no pipe
+  // handles keep the parent alive; cmd.exe resolved from SystemRoot.
+  const cmdExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
+  const child = execFile(cmdExe, ['/c', batPath], { windowsHide: true, detached: true, stdio: 'ignore' });
   child.unref();
   setTimeout(() => app.quit(), 300);   // give IPC reply time to reach renderer
 }
@@ -108,6 +163,7 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
+  updateWin = win;
 }
 
 // Download a URL (follows redirects via global fetch), return Uint8Array
@@ -272,27 +328,25 @@ ipcMain.handle('update:check', async () => {
   return checkForUpdate();
 });
 
-ipcMain.handle('update:install', async (_e, url) => {
-  if (!/^https:\/\/github\.com\/|^https:\/\/api\.github\.com\/|^https:\/\/objects\.githubusercontent\.com\//.test(String(url))) {
+ipcMain.handle('app:getVersion', () => app.getVersion());
+
+ipcMain.handle('update:install', async (e, payload) => {
+  // payload: { url, size } — download happens HERE in main: the renderer's
+  // fetch is blocked by CSP (default-src 'self' on a file:// page) and by
+  // CORS on GitHub's release-asset redirect host. Progress is relayed to
+  // the renderer via 'update:progress' webContents events.
+  const url = String(payload && payload.url || '');
+  const size = Number(payload && payload.size) || 0;
+  if (!/^https:\/\/github\.com\/|^https:\/\/objects\.githubusercontent\.com\/|^https:\/\/release-assets\.githubusercontent\.com\//.test(url)) {
     throw new Error('Недопустимый URL обновления');
   }
-  const res = await fetch(String(url), { redirect: 'follow', headers: { 'User-Agent': 'RuleFlowEditor-Updater' } });
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' при скачивании обновления');
-  const ab = await res.arrayBuffer();
-  await performUpdate(Buffer.from(ab));
+  await performUpdate(url, size, e.sender);
   return true;
 });
 
-// Renderer streams the download (for progress UI) and hands over the bytes.
+// Legacy byte-handoff path kept for compatibility; unused by the UI now.
 ipcMain.handle('update:installBytes', async (_e, bytes) => {
-  if (!Array.isArray(bytes) || !(bytes instanceof Array) || !bytes.length) {
-    throw new Error('Пустой файл обновления');
-  }
-  if (bytes.length > 400 * 1024 * 1024) {
-    throw new Error('Файл обновления слишком большой');
-  }
-  await performUpdate(Buffer.from(bytes));
-  return true;
+  throw new Error('Этот способ установки больше не поддерживается');
 });
 
 app.whenReady().then(() => {

@@ -2175,31 +2175,21 @@ function updateProgressShow(label, pct) {
   $('#update-progress-fill').style.width = Math.max(0, Math.min(100, pct)) + '%';
 }
 
-async function installUpdate(url) {
+// Progress events stream from main during the main-process download.
+if (window.api.onUpdateProgress) {
+  window.api.onUpdateProgress((label, pct) => updateProgressShow(label, pct));
+}
+
+async function installUpdate(info) {
   const btn = $('#update-install');
   btn.disabled = true;
-  updateProgressShow('Скачивание…', 4);
+  updateProgressShow('Скачивание…', 3);
   try {
-    // stream the download to main via a data chunk list so we can show progress
-    const res = await fetch(url, { redirect: 'follow' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const total = Number(res.headers.get('content-length')) || 0;
-    const reader = res.body.getReader();
-    const chunks = [];
-    let got = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      got += value.length;
-      if (total) updateProgressShow('Скачивание… ' + Math.round((got / total) * 100) + '%', (got / total) * 96);
-    }
-    updateProgressShow('Установка — приложение сейчас перезапустится…', 98);
-    const merged = new Uint8Array(got);
-    let off = 0;
-    for (const c of chunks) { merged.set(c, off); off += c.length; }
-    // hand the bytes to main; it writes them and swaps the exe after quit
-    await window.api.updateInstallBytes(Array.from(merged));
+    // Download happens in the MAIN process: the renderer's fetch is blocked
+    // by CSP (default-src 'self' on a file:// page) and by CORS on GitHub's
+    // release-asset host. Progress arrives via onUpdateProgress; on success
+    // main writes the exe, quits, and a swap script replaces it.
+    await window.api.updateInstall({ url: info.url, size: info.size });
   } catch (err) {
     btn.disabled = false;
     $('#update-progress').hidden = true;
@@ -2209,13 +2199,25 @@ async function installUpdate(url) {
 
 function showUpdateModal(info) {
   $('#update-newver').textContent = 'v' + info.version;
-  $('#update-curver').textContent = 'v' + (window.appVersion || '');
-  const notes = String(info.notes || '').replace(/\r/g, '');
+  const curEl = $('#update-curver');
+  curEl.textContent = 'v…';
+  if (window.api.appVersion) {
+    window.api.appVersion().then((v) => { curEl.textContent = 'v' + v; }).catch(() => {});
+  }
+  // Light markdown cleanup: drop duplicate version headings and emphasis
+  // markers so the notes read cleanly next to the big version heading.
+  const notes = String(info.notes || '')
+    .replace(/\r/g, '')
+    .replace(/^#{1,6}\s*v?\d[\d.]*\s*$/gm, '')   // duplicate version title
+    .replace(/^#{1,6}\s*/gm, '')                  // remaining heading hashes
+    .replace(/\*\*([^*]+)\*\*/g, '$1')            // bold markers
+    .replace(/^[ \t]*[-*]\s+/gm, '• ')
+    .trim();
   $('#update-notes').textContent = notes || 'Исправления и улучшения.';
   $('#update-progress').hidden = true;
   const btn = $('#update-install');
   btn.disabled = false;
-  btn.onclick = () => installUpdate(info.url);
+  btn.onclick = () => installUpdate(info);
   updateModal.hidden = false;
 }
 

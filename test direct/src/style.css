@@ -1349,11 +1349,11 @@ input[type="text"]:focus, textarea:focus, select:focus {
   border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
 }
 .theme-glass .update-badge {
-  background: rgba(76, 217, 100, 0.12);
-  border-color: rgba(76, 217, 100, 0.4);
+  background: rgba(46, 194, 126, 0.12);
+  border-color: rgba(46, 194, 126, 0.4);
 }
 .update-arrow { font-size: 14px; }
-.update-version { margin: 2px 0 0; font-size: 30px; letter-spacing: -.02em; }
+.modal h3.update-version { margin: 2px 0 0; font-size: 30px; letter-spacing: -.02em; }
 .update-sub { color: var(--muted); font-size: 13px; }
 .update-notes {
   text-align: left;
@@ -1387,6 +1387,7 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .update-btn-green:active { transform: scale(.97); }
 .update-btn-green[disabled] { opacity: .6; cursor: default; transform: none; }
 .update-progress { display: flex; align-items: center; gap: 10px; }
+.update-progress[hidden] { display: none !important; }
 .update-progress-bar {
   flex: 1;
   height: 6px;
