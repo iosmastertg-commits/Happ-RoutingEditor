@@ -435,6 +435,73 @@ body.theme-glass::before {
   gap: 14px;
 }
 
+/* --- Help "?" button — opens per-tab notes modal. A quiet circular chip
+   that still reads on the glass topbar; accent ring on hover/focus. --- */
+.help-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(127, 145, 170, 0.18);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: color .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .12s ease;
+}
+.help-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.16);
+  box-shadow: 0 0 10px rgba(79, 140, 255, 0.25);
+}
+.help-btn:active { transform: scale(0.92); }
+.theme-glass .help-btn {
+  background: rgba(22, 27, 34, 0.45);
+  border-color: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+}
+
+/* Notes textarea inside the help modal */
+/* Notes inside the help modal: users get a read-only view; the maintainer
+   toggles an editable textarea via secret multi-click on "?" */
+.help-modal .modal-body { margin-top: 10px; }
+.help-notes {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+.help-notes-view {
+  white-space: pre-wrap;
+  overflow-y: auto;
+  max-height: 46vh;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(12, 15, 21, 0.35);
+  user-select: text;
+  cursor: default;
+}
+.help-notes-view:empty::after {
+  content: 'Заметок пока нет.';
+  color: var(--muted-2);
+}
+.help-saved {
+  font-size: 11px;
+  color: var(--muted-2);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.help-saved.show { opacity: 1; }
+.modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
 .theme-toggle {
   background: none;
   border: 1px solid var(--line);
@@ -983,6 +1050,17 @@ input[type="text"]:focus, textarea:focus, select:focus {
   box-shadow: var(--shadow-sm);
 }
 .rule.dragging { opacity: 0.4; cursor: grabbing; }
+/* Rule references a category missing from the loaded geosite/geoip .dat —
+   set by markMissingCategories() before conversion. Red = will break. */
+.rule.missing-cat {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, var(--panel-2));
+}
+.rule.missing-cat .val { color: var(--red); }
+.theme-glass .rule.missing-cat {
+  border-color: rgba(242, 85, 85, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(242, 85, 85, 0.35);
+}
 .rule.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
 .rule.removing { animation: fly-out 0.28s ease forwards; }
 .rule.flash { animation: flash-green 0.7s ease; }
@@ -1237,6 +1315,8 @@ input[type="text"]:focus, textarea:focus, select:focus {
   font-size: 13px;
   box-shadow: var(--shadow);
   animation: toast-in 0.25s ease;
+  white-space: pre-line;   /* multi-line validation messages */
+  max-width: 460px;
 }
 .toast.ok { border-left-color: var(--green); }
 .toast.err { border-left-color: var(--red); }

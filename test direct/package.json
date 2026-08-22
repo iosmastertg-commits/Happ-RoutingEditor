@@ -1,6 +1,6 @@
 {
   "name": "rule-flow-editor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Visual rule editor for proxy/routing with geosite/geoip .dat support",
   "main": "main.js",
   "author": "Rule Flow",
@@ -20,12 +20,17 @@
     ],
     "win": {
       "target": [
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png"
     },
     "portable": {
-      "artifactName": "RuleFlowEditor-1.0.1.exe"
+      "artifactName": "RuleFlowEditor-1.0.2.exe"
     }
   },
   "devDependencies": {

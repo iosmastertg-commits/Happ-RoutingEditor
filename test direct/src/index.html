@@ -14,6 +14,7 @@
       <span class="brand-title">Rule Flow Editor</span>
     </div>
     <div class="topbar-right">
+      <button class="help-btn" id="help-btn" title="Заметки для пользователей">?</button>
       <button class="theme-toggle" id="theme-toggle" role="switch" aria-checked="false" title="Переключить тему">
         <span class="theme-toggle-track">
           <span class="theme-toggle-thumb"></span>
@@ -322,6 +323,23 @@
   </div>
 
   <div class="toast-wrap" id="toast-wrap"></div>
+
+  <!-- HELP / NOTES MODAL — one note per app tab; users read only,
+       the maintainer edits via secret multi-click on the "?" button -->
+  <div class="modal-backdrop" id="help-modal" hidden>
+    <div class="modal help-modal" data-liquid-glass>
+      <h3 id="help-title">Заметки</h3>
+      <div class="modal-body">
+        <div id="help-notes" class="help-notes help-notes-view"></div>
+        <textarea id="help-edit" class="help-notes help-notes-edit" rows="10" hidden
+                  placeholder="Напишите здесь заметки для пользователей этой страницы…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <span class="help-saved" id="help-saved"></span>
+        <button class="btn primary" id="help-close">Готово</button>
+      </div>
+    </div>
+  </div>
 
   <script src="liquidglass.js"></script>
   <script src="renderer.js"></script>

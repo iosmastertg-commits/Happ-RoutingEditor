@@ -105,14 +105,14 @@ function tryParseJson(text) {
   try { return JSON.parse(text.trim().replace(/^\ufeff/, '')); } catch (_) { return null; }
 }
 
-function toast(msg, kind) {
+function toast(msg, kind, duration) {
   const wrap = $('#toast-wrap');
   const t = el('div', 'toast' + (kind ? ' ' + kind : ''), msg);
   wrap.appendChild(t);
   setTimeout(() => {
     t.classList.add('leaving');
     setTimeout(() => t.remove(), 250);
-  }, 2200);
+  }, duration || 2200);
 }
 
 /* ============================ App tabs ============================ */
@@ -132,7 +132,113 @@ document.querySelectorAll('.app-tab').forEach((tab) => {
       gfRenderCatList();
       gfRenderCatContent();
     }
+    helpSyncToView(view);
   });
+});
+
+/* ============================ Help / notes modal ============================ */
+/* One note per app tab (editor/converter/geofiles), persisted in localStorage.
+   Users see a read-only view. The maintainer enters edit mode by clicking "?"
+   5 times within 2 seconds (title shows a hint counter while clicking). */
+const helpModal = $('#help-modal');
+const helpViewEl = $('#help-notes');
+const helpEditEl = $('#help-edit');
+const helpTitle = $('#help-title');
+const helpSaved = $('#help-saved');
+const HELP_TITLES = { editor: 'Заметки — Редактор', converter: 'Заметки — Конвертер', geofiles: 'Заметки — Geofiles' };
+let helpView = 'editor';
+let helpSaveTimer = null;
+let helpClicks = [];
+let helpEditing = false;
+
+function helpLoad() {
+  let notes = {};
+  try { notes = JSON.parse(localStorage.getItem('ruleflow-help-notes') || '{}'); } catch (e) { notes = {}; }
+  return notes;
+}
+
+function helpSyncToView(view) {
+  helpView = view;
+  if (helpModal.hidden) return;
+  helpTitle.textContent = HELP_TITLES[view] || 'Заметки';
+  const text = helpLoad()[view] || '';
+  helpViewEl.textContent = text;
+  helpEditEl.value = text;
+  helpSaved.classList.remove('show');
+}
+
+function helpOpen() {
+  helpModal.hidden = false;   // unhide first: helpSyncToView early-returns while hidden
+  helpSyncToView(helpView);
+}
+function helpClose() {
+  if (helpEditing) helpToggleEdit(false);
+  helpPersist();
+  helpModal.hidden = true;
+  helpClicks = [];
+}
+
+function helpToggleEdit(on) {
+  helpEditing = on !== undefined ? on : !helpEditing;
+  if (helpEditing) {
+    helpEditEl.hidden = false;
+    helpViewEl.hidden = true;
+    helpEditEl.value = helpLoad()[helpView] || '';
+    helpTitle.textContent = (HELP_TITLES[helpView] || 'Заметки') + ' — редактирование';
+    helpEditEl.focus();
+  } else {
+    helpEditEl.hidden = true;
+    helpViewEl.hidden = false;
+    helpViewEl.textContent = helpEditEl.value;
+    helpTitle.textContent = HELP_TITLES[helpView] || 'Заметки';
+  }
+}
+
+$('#help-btn').addEventListener('click', () => {
+  const now = Date.now();
+  helpClicks = helpClicks.filter((t) => now - t < 2000);
+  helpClicks.push(now);
+  // 5 clicks within 2s = maintainer edit mode. Counted regardless of the
+  // open/close toggle so rapid clicking never closes the modal mid-sequence.
+  if (helpClicks.length >= 5) {
+    helpClicks = [];
+    if (helpEditing) { helpClose(); return; }
+    helpModal.hidden = false;   // unhide first: helpSyncToView early-returns while hidden
+    helpSyncToView(helpView);
+    helpToggleEdit(true);
+    toast('Режим редактирования заметок включён', 'ok');
+    return;
+  }
+  if (helpModal.hidden) {
+    helpModal.hidden = false;   // unhide first: helpSyncToView early-returns while hidden
+    helpSyncToView(helpView);
+    helpViewEl.scrollTop = 0;   // fresh open: read from the top
+  }
+});
+$('#help-close').addEventListener('click', helpClose);
+helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpClose(); });
+
+function helpPersist() {
+  if (!helpEditing) return;
+  const notes = helpLoad();
+  notes[helpView] = helpEditEl.value;
+  try { localStorage.setItem('ruleflow-help-notes', JSON.stringify(notes)); } catch (e) { /* quota */ }
+  helpSaved.textContent = 'Сохранено';
+  helpSaved.classList.add('show');
+  clearTimeout(helpSaveTimer);
+  helpSaveTimer = setTimeout(() => helpSaved.classList.remove('show'), 1600);
+}
+
+// Debounced autosave while typing; Ctrl+Enter saves and exits edit mode.
+helpEditEl.addEventListener('input', () => {
+  clearTimeout(helpSaveTimer);
+  helpSaveTimer = setTimeout(helpPersist, 600);
+});
+helpEditEl.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    helpPersist();
+    helpToggleEdit(false);
+  }
 });
 
 /* ============================ Converter ============================ */
@@ -252,9 +358,11 @@ function renderConvSrcList() {
   const list = state.rules.filter((r) => (r.section || 'Direct') === convSrcSection);
   $('#conv-src-count').textContent = state.rules.length;
   $('#conv-src-empty').style.display = list.length ? 'none' : 'block';
+  const missing = new Set((state.convMissing && state.convMissing.geosite) || []);
   const frag = document.createDocumentFragment();
   for (const r of list) {
     const li = convRuleEl(r.type, r.value);
+    if (r.type === 'geosite' && missing.has(r.value)) li.classList.add('missing-cat');
     const del = el('button', 'del', '✕');
     del.title = 'Удалить';
     del.addEventListener('click', () => {
@@ -266,6 +374,28 @@ function renderConvSrcList() {
     frag.appendChild(li);
   }
   convSrcList.appendChild(frag);
+}
+
+/* Rules referencing a category that is absent from the currently loaded
+   geosite .dat get a red outline; the first one is scrolled into view so the
+   user immediately sees what will break on export/convert. */
+function markMissingCategories() {
+  state.convMissing = { geosite: [], geoip: [] };
+  const gsCodes = new Set(state.geositeMeta.map((c) => c.code));
+  const giCodes = new Set(state.geoipMeta.map((c) => c.code));
+  for (const r of state.rules) {
+    if (r.type === 'geosite' && !gsCodes.has(String(r.value).toUpperCase())) {
+      if (!state.convMissing.geosite.includes(r.value)) state.convMissing.geosite.push(r.value);
+    }
+    if (r.type === 'geoip' && !giCodes.has(String(r.value).toUpperCase())) {
+      if (!state.convMissing.geoip.includes(r.value)) state.convMissing.geoip.push(r.value);
+    }
+  }
+  renderConvSrcList();
+  renderRulesList();
+  // jump to the first missing rule in the converter list
+  const first = convSrcList.querySelector('.rule.missing-cat');
+  if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function renderConvResList(json) {
@@ -398,6 +528,19 @@ $('#conv-run').addEventListener('click', async () => {
     if (!$('#conv-src-geoip').value.trim()) return toast('Укажите URL или загрузите файл geoip.dat', 'err');
     const ok = await loadConvDat('geoip');
     if (!ok) return;
+  }
+  // Pre-convert validation: every geosite:/geoip: rule must exist in the
+  // loaded .dat files. Missing ones are highlighted red, the list scrolls to
+  // the first offender, and conversion is blocked with a how-to-fix toast.
+  markMissingCategories();
+  const mg = state.convMissing.geosite, mi = state.convMissing.geoip;
+  if (mg.length || mi.length) {
+    const parts = [];
+    mg.slice(0, 3).forEach((c) => parts.push('geosite:' + c + ' есть в ваших правилах, но его нету в указанном geosite. Добавьте в ваш geosite - geosite:' + c));
+    mi.slice(0, 3).forEach((c) => parts.push('geoip:' + c + ' есть в ваших правилах, но его нету в указанном geoip. Добавьте в ваш geoip - geoip:' + c));
+    if (mg.length > 3 || mi.length > 3) parts.push('…и ещё ' + Math.max(0, mg.length - 3) + (mi.length ? ' / ' + mi.length : ''));
+    toast(parts.join('\n'), 'err', 8000);
+    return;
   }
   const before = { Direct: 0, Proxy: 0, Block: 0 };
   state.rules.forEach((r) => before[r.section || 'Direct']++);
@@ -561,10 +704,12 @@ function removeRule(id) {
 
 function renderRulesList() {
   rulesList.innerHTML = '';
+  const missing = new Set((state.convMissing && state.convMissing.geosite) || []);
   const frag = document.createDocumentFragment();
   for (const r of state.rules) {
     if (r.section === state.currentSection) {
       const el = createRuleEl(r);
+      if (r.type === 'geosite' && missing.has(r.value)) el.classList.add('missing-cat');
       el.classList.add('new-batch');
       frag.appendChild(el);
     }
