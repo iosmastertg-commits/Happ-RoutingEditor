@@ -68,7 +68,8 @@ ipcMain.handle('geosite:load', async (_e, { url, fileData }) => {
 });
 
 ipcMain.handle('geosite:domains', async (_e, code) => {
-  return geositeStore.get(code) || [];
+  // store keys are uppercased at load; rules may carry lowercase codes (geosite:cn)
+  return geositeStore.get(String(code || '').toUpperCase()) || [];
 });
 
 // Full-content search: find every category that has a domain matching `q`.
@@ -139,7 +140,7 @@ ipcMain.handle('dialog:openFile', async (_e, opts) => {
   });
   if (r.canceled || !r.filePaths.length) return null;
   const p = r.filePaths[0];
-  const data = fs.readFileSync(p);
+  const data = fs.readFileSync(p); // throws propagate to renderer's catch → error toast
   return { path: p, data: Array.from(data) };
 });
 

@@ -172,8 +172,8 @@ function helpOpen() {
   helpSyncToView(helpView);
 }
 function helpClose() {
+  helpPersist();              // persist first: helpToggleEdit(false) clears helpEditing
   if (helpEditing) helpToggleEdit(false);
-  helpPersist();
   helpModal.hidden = true;
   helpClicks = [];
 }
@@ -447,15 +447,23 @@ $('#conv-import').addEventListener('click', () => { importModal.hidden = false; 
 $('#conv-export').addEventListener('click', async () => {
   if (!state.rules.length) return toast('Нечего экспортировать', 'err');
   const content = state.rules.map(formatRule).join('\n') + '\n';
-  const ok = await window.api.saveText({ defaultName: 'rules.txt', content });
-  if (ok) toast('Экспортировано в файл', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'rules.txt', content });
+    if (ok) toast('Экспортировано в файл', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 $('#conv-src-export-json').addEventListener('click', async () => {
   if (!state.rules.length) return toast('Нечего экспортировать', 'err');
   const content = JSON.stringify(buildExportJson(), null, 2);
-  const ok = await window.api.saveText({ defaultName: 'rules.json', content });
-  if (ok) toast('Экспортировано в JSON', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'rules.json', content });
+    if (ok) toast('Экспортировано в JSON', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 $('#conv-link-src-happ').addEventListener('click', () => copyRoutingLink('happ', 'Happ'));
@@ -571,14 +579,22 @@ $('#conv-export-txt').addEventListener('click', async () => {
     (convertedJson[s + 'Sites'] || []).forEach((l) => lines.push(l));
     (convertedJson[s + 'Ip'] || []).forEach((l) => lines.push(l));
   });
-  const ok = await window.api.saveText({ defaultName: 'converted-rules.txt', content: lines.join('\n') + '\n' });
-  if (ok) toast('Экспортировано в файл', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'converted-rules.txt', content: lines.join('\n') + '\n' });
+    if (ok) toast('Экспортировано в файл', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 $('#conv-export-json').addEventListener('click', async () => {
   if (!convertedJson) return toast('Сначала нажмите «Конвертировать»', 'err');
-  const ok = await window.api.saveText({ defaultName: 'converted-rules.json', content: JSON.stringify(convertedJson, null, 2) });
-  if (ok) toast('Экспортировано в JSON', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'converted-rules.json', content: JSON.stringify(convertedJson, null, 2) });
+    if (ok) toast('Экспортировано в JSON', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 $('#conv-link-happ').addEventListener('click', () => copyRoutingJson('happ', 'Happ'));
@@ -857,8 +873,12 @@ function quickAdd() {
 $('#btn-export').addEventListener('click', async () => {
   if (!state.rules.length) return toast('Нечего экспортировать', 'err');
   const content = state.rules.map(formatRule).join('\n') + '\n';
-  const ok = await window.api.saveText({ defaultName: 'rules.txt', content });
-  if (ok) toast('Экспортировано в файл', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'rules.txt', content });
+    if (ok) toast('Экспортировано в файл', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 function buildExportJson() {
@@ -908,8 +928,12 @@ $('#btn-link-incy').addEventListener('click', () => copyRoutingLink('incy', 'Inc
 $('#btn-export-json').addEventListener('click', async () => {
   if (!state.rules.length) return toast('Нечего экспортировать', 'err');
   const content = JSON.stringify(buildExportJson(), null, 2);
-  const ok = await window.api.saveText({ defaultName: 'rules.json', content });
-  if (ok) toast('Экспортировано в JSON', 'ok');
+  try {
+    const ok = await window.api.saveText({ defaultName: 'rules.json', content });
+    if (ok) toast('Экспортировано в JSON', 'ok');
+  } catch (err) {
+    toast('Ошибка сохранения: ' + err.message, 'err');
+  }
 });
 
 /* ============================ Import modal ============================ */
@@ -939,11 +963,15 @@ $('#import-url-fetch').addEventListener('click', async () => {
 });
 
 $('#import-file-pick').addEventListener('click', async () => {
-  const text = await window.api.openText();
-  if (text != null) {
-    $('#import-textarea').value = text;
-    document.querySelector('.modal-tabs .tab[data-tab="text"]').click();
-    toast('Файл загружен — проверьте текст', 'ok');
+  try {
+    const text = await window.api.openText();
+    if (text != null) {
+      $('#import-textarea').value = text;
+      document.querySelector('.modal-tabs .tab[data-tab="text"]').click();
+      toast('Файл загружен — проверьте текст', 'ok');
+    }
+  } catch (err) {
+    toast('Ошибка чтения файла: ' + err.message, 'err');
   }
 });
 
@@ -1073,16 +1101,22 @@ const geositeTree = $('#geosite-tree');
 
 $('#geosite-load').addEventListener('click', loadGeosite);
 $('#geosite-file').addEventListener('click', async () => {
-  const f = await window.api.openFile({ filters: [{ name: 'Geosite dat', extensions: ['dat'] }] });
-  if (!f) return;
-  const res = await window.api.geositeLoad({ fileData: f.data });
-  state.geositeMeta = res.categories;
-  state.geositeCache = {};
-  state.geositeSource = f.path.split('\\').pop();
-  renderGeositeTree();
-  const status = $('#geosite-status');
-  status.className = 'status ok';
-  status.textContent = `Загружен файл: ${f.path.split('\\').pop()} — категорий: ${res.categories.length}`;
+  try {
+    const f = await window.api.openFile({ filters: [{ name: 'Geosite dat', extensions: ['dat'] }] });
+    if (!f) return;
+    const res = await window.api.geositeLoad({ fileData: f.data });
+    state.geositeMeta = res.categories;
+    state.geositeCache = {};
+    state.geositeSource = f.path.split('\\').pop();
+    renderGeositeTree();
+    const status = $('#geosite-status');
+    status.className = 'status ok';
+    status.textContent = `Загружен файл: ${f.path.split('\\').pop()} — категорий: ${res.categories.length}`;
+  } catch (err) {
+    const status = $('#geosite-status');
+    status.className = 'status error';
+    status.textContent = 'Ошибка чтения .dat: ' + err.message;
+  }
 });
 $('#geosite-filter').addEventListener('input', renderGeositeTree);
 
@@ -1230,6 +1264,9 @@ async function fillCatBody(code, body, countEl) {
     const v = addInput.value.trim();
     if (!v) return;
     await window.api.geositeAddDomain({ code, type: 'domain', value: v });
+    if (!state.geositeCache[code]) {
+      state.geositeCache[code] = await window.api.geositeDomains(code);
+    }
     state.geositeCache[code].push({ type: 'domain', value: v });
     addInput.value = '';
     refreshCatBody(code, body, countEl);
@@ -1318,6 +1355,10 @@ function createDomEl(code, d, index, body, countEl) {
 
   del.addEventListener('click', async (e) => {
     e.stopPropagation();
+    // hydrate cache if the row came from content-search or the .dat was reloaded
+    if (!state.geositeCache[code]) {
+      state.geositeCache[code] = await window.api.geositeDomains(code);
+    }
     const realIndex = state.geositeCache[code].findIndex((x) => x.value === d.value && x.type === d.type);
     await window.api.geositeRemoveDomain({ code, index: realIndex });
     if (realIndex >= 0) state.geositeCache[code].splice(realIndex, 1);
@@ -1342,15 +1383,21 @@ const geoipTiles = $('#geoip-tiles');
 
 $('#geoip-load').addEventListener('click', loadGeoip);
 $('#geoip-file').addEventListener('click', async () => {
-  const f = await window.api.openFile({ filters: [{ name: 'GeoIP dat', extensions: ['dat'] }] });
-  if (!f) return;
-  const res = await window.api.geoipLoad({ fileData: f.data });
-  state.geoipMeta = res.countries;
-  state.geoipSource = f.path.split('\\').pop();
-  renderGeoipTiles();
-  const status = $('#geoip-status');
-  status.className = 'status ok';
-  status.textContent = `Загружен файл: ${f.path.split('\\').pop()} — стран: ${res.countries.length}`;
+  try {
+    const f = await window.api.openFile({ filters: [{ name: 'GeoIP dat', extensions: ['dat'] }] });
+    if (!f) return;
+    const res = await window.api.geoipLoad({ fileData: f.data });
+    state.geoipMeta = res.countries;
+    state.geoipSource = f.path.split('\\').pop();
+    renderGeoipTiles();
+    const status = $('#geoip-status');
+    status.className = 'status ok';
+    status.textContent = `Загружен файл: ${f.path.split('\\').pop()} — стран: ${res.countries.length}`;
+  } catch (err) {
+    const status = $('#geoip-status');
+    status.className = 'status error';
+    status.textContent = 'Ошибка чтения .dat: ' + err.message;
+  }
 });
 $('#geoip-filter').addEventListener('input', renderGeoipTiles);
 
@@ -1448,9 +1495,15 @@ let gfContentOpen = false;
 $('#gf-src-load').addEventListener('click', gfLoadSource);
 $('#gf-src-file').addEventListener('click', async () => {
   const isGeo = gfState.mode === 'geosite';
-  const f = await window.api.openFile({ filters: [{ name: (isGeo ? 'Geosite' : 'GeoIP') + ' dat', extensions: ['dat'] }] });
-  if (!f) return;
-  await gfApplySource({ fileData: f.data });
+  try {
+    const f = await window.api.openFile({ filters: [{ name: (isGeo ? 'Geosite' : 'GeoIP') + ' dat', extensions: ['dat'] }] });
+    if (!f) return;
+    await gfApplySource({ fileData: f.data });
+  } catch (err) {
+    const status = $('#gf-src-status');
+    status.className = 'status error';
+    status.textContent = 'Ошибка: ' + err.message;
+  }
 });
 $('#gf-src-filter').addEventListener('input', gfRenderTree);
 

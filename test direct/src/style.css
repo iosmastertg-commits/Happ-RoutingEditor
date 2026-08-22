@@ -1303,6 +1303,9 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .replace-opt { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: var(--muted); font-size: 13px; cursor: pointer; }
 .replace-opt input { accent-color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Help modal footer keeps "Сохранено" left, button right (rule above would
+   otherwise win by source order and push the indicator to the right) */
+.help-modal .modal-actions { justify-content: space-between; }
 
 /* ---------- Toasts ---------- */
 .toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; }

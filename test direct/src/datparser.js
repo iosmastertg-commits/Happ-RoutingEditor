@@ -11,14 +11,22 @@ class Reader {
   }
   eof() { return this.pos >= this.len; }
 
+  _need(n, what) {
+    if (this.pos + n > this.len) {
+      throw new Error('Файл повреждён или обрезан: на смещении ' + this.pos + ' не хватает ' + n + ' байт (' + what + ')');
+    }
+  }
+
   varint() {
     let result = 0n;
     let shift = 0n;
     while (true) {
+      this._need(1, 'varint');
       const b = this.buf[this.pos++];
       result |= BigInt(b & 0x7f) << shift;
       if ((b & 0x80) === 0) break;
       shift += 7n;
+      if (shift >= 70n) throw new Error('Повреждённый varint на смещении ' + this.pos); // >10 байт — не по спецификации
     }
     return result;
   }
@@ -31,6 +39,7 @@ class Reader {
 
   bytes() {
     const n = this.varintNum();
+    this._need(n, 'поле длиной ' + n);
     const out = this.buf.subarray(this.pos, this.pos + n);
     this.pos += n;
     return out;
@@ -40,10 +49,10 @@ class Reader {
   skip(wire) {
     switch (wire) {
       case 0: this.varint(); break;            // varint
-      case 1: this.pos += 8; break;            // 64-bit
-      case 2: { const n = this.varintNum(); this.pos += n; break; } // len-delimited
-      case 5: this.pos += 4; break;            // 32-bit
-      default: throw new Error('Unknown wire type ' + wire);
+      case 1: this._need(8, 'fixed64'); this.pos += 8; break;            // 64-bit
+      case 2: { const n = this.varintNum(); this._need(n, 'поле длиной ' + n); this.pos += n; break; } // len-delimited
+      case 5: this._need(4, 'fixed32'); this.pos += 4; break;            // 32-bit
+      default: throw new Error('Неизвестный тип поля ' + wire + ' на смещении ' + this.pos + ' — файл повреждён или это не geosite/geoip');
     }
   }
 }
@@ -165,6 +174,7 @@ class Writer {
   }
   varint(v) {
     v = BigInt(v);
+    if (v < 0n) v &= 0xffffffffffffffffn; // negative → two's complement uint64 (proto semantics), avoids infinite loop
     while (v >= 0x80n) {
       this.buf.push(Number(v & 0x7fn) | 0x80);
       v >>= 7n;
