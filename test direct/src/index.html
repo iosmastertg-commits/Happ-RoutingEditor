@@ -3,28 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
   <title>Rule Flow Editor</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" data-liquid-glass>
     <div class="brand">
-      <span class="logo">⚡</span>
+      <img class="logo" src="assets/128x128.png" alt="Rule Flow Editor" draggable="false" />
       <span class="brand-title">Rule Flow Editor</span>
     </div>
-    <div class="topbar-hint">Перетаскивайте домены и страны в «Мои правила»</div>
+    <div class="topbar-right">
+      <button class="theme-toggle" id="theme-toggle" role="switch" aria-checked="false" title="Переключить тему">
+        <span class="theme-toggle-track">
+          <span class="theme-toggle-thumb"></span>
+        </span>
+        <span class="theme-toggle-icon" aria-hidden="true"></span>
+      </button>
+    </div>
   </header>
 
   <nav class="app-tabs">
     <button class="app-tab active" data-view="editor">Редактор</button>
     <button class="app-tab" data-view="converter">Конвертер</button>
+    <button class="app-tab" data-view="geofiles">Geofiles</button>
   </nav>
 
   <main class="board" id="view-editor">
 
     <!-- COLUMN 1 — MY RULES -->
-    <section class="col" id="col-rules">
+    <section class="col" id="col-rules" data-liquid-glass>
       <div class="col-head">
         <h2>Мои правила <span class="count" id="rules-count">0</span></h2>
         <div class="col-actions">
@@ -62,7 +70,7 @@
     </section>
 
     <!-- COLUMN 2 — GEOSITE -->
-    <section class="col" id="col-geosite">
+    <section class="col" id="col-geosite" data-liquid-glass>
       <div class="col-head">
         <h2>Geosite</h2>
       </div>
@@ -83,7 +91,7 @@
     </section>
 
     <!-- COLUMN 3 — GEOIP -->
-    <section class="col" id="col-geoip">
+    <section class="col" id="col-geoip" data-liquid-glass>
       <div class="col-head">
         <h2>GeoIP</h2>
       </div>
@@ -107,7 +115,7 @@
     <div class="conv-layout">
 
       <section class="conv-col">
-        <div class="conv-card conv-card-rules">
+        <div class="conv-card conv-card-rules" data-liquid-glass>
           <div class="conv-card-head">
             <span class="conv-card-title">Правила <span class="count" id="conv-src-count">0</span></span>
             <div class="conv-card-actions">
@@ -126,7 +134,7 @@
           <ul class="rules-list" id="conv-src-list"></ul>
           <div class="empty-hint" id="conv-src-empty">Список пуст. Импортируйте конфиг или добавьте правила в редакторе.</div>
         </div>
-        <div class="conv-card conv-card-dat">
+        <div class="conv-card conv-card-dat" data-liquid-glass>
           <div class="conv-card-head"><span class="conv-card-title">Исходные Geosite / Geoip</span></div>
           <div class="conv-field">
             <label>Geositeurl</label>
@@ -153,7 +161,7 @@
       </div>
 
       <section class="conv-col">
-        <div class="conv-card conv-card-rules">
+        <div class="conv-card conv-card-rules" data-liquid-glass>
           <div class="conv-card-head">
             <span class="conv-card-title">Правила <span class="count" id="conv-res-count">0</span></span>
             <div class="conv-card-actions">
@@ -171,7 +179,7 @@
           <ul class="rules-list" id="conv-res-list"></ul>
           <div class="empty-hint" id="conv-res-empty">Нажмите «Конвертировать» — здесь появится новый список.</div>
         </div>
-        <div class="conv-card conv-card-dat">
+        <div class="conv-card conv-card-dat" data-liquid-glass>
           <div class="conv-card-head"><span class="conv-card-title">Новые Geosite / Geoip</span></div>
           <div class="conv-field">
             <label>Geositeurl</label>
@@ -189,9 +197,97 @@
     </div>
   </main>
 
+  <!-- GEOFILES VIEW — build custom geosite/geoip categories, export .dat -->
+  <main class="geofiles" id="view-geofiles" hidden>
+    <div class="gf-subtabs">
+      <button class="gf-subtab active" data-gf="geosite">Geosite</button>
+      <button class="gf-subtab" data-gf="geoip">GeoIP</button>
+    </div>
+
+    <div class="gf-layout">
+      <!-- LEFT: source .dat (import by URL or file) -->
+      <section class="col gf-src" data-liquid-glass>
+        <div class="col-head">
+          <h2>Источник</h2>
+        </div>
+        <div class="url-bar">
+          <input type="text" id="gf-src-url"
+                 value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" />
+          <button class="btn primary" id="gf-src-load">Загрузить</button>
+          <button class="btn ghost" id="gf-src-file">Файл</button>
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="gf-src-filter" placeholder="фильтр по категориям…" />
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="gf-src-search" placeholder="🔍 поиск по доменам, напр. 2ip.ru…" />
+        </div>
+        <div class="status" id="gf-src-status"></div>
+        <div class="tree" id="gf-src-tree"></div>
+      </section>
+
+      <!-- RIGHT: my categories -->
+      <section class="col gf-mine" data-liquid-glass>
+        <div class="col-head">
+          <h2>Мои категории <span class="count" id="gf-mine-count">0</span></h2>
+          <div class="col-actions">
+            <button class="btn ghost" id="gf-import" title="Импорт правил (текст/файл)">Импорт</button>
+            <button class="btn primary" id="gf-new-cat" title="Создать категорию">＋ Категория</button>
+            <button class="btn ghost" id="gf-export" title="Экспорт в .dat">Экспорт .dat</button>
+          </div>
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="gf-cat-filter" placeholder="фильтр по категориям…" />
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="gf-cat-search" placeholder="🔍 поиск по доменам в категории…" />
+        </div>
+        <div class="quick-add gf-quick-add">
+          <select id="gf-qa-type">
+            <option value="domain">domain</option>
+            <option value="regexp">regexp</option>
+            <option value="keyword">keyword</option>
+            <option value="plain">plain</option>
+            <option value="full">full</option>
+          </select>
+          <input type="text" id="gf-qa-input" placeholder="значение, напр. example.com" />
+          <button class="btn primary" id="gf-qa-add">＋</button>
+        </div>
+        <div class="gf-cat-list" id="gf-cat-list"></div>
+        <div class="gf-cat-content" id="gf-cat-content">
+          <div class="empty-hint">Создайте категорию и добавьте в неё домены/IP из источника.</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Import rules panel (Geofiles) — .dat only (by URL or from disk) -->
+    <div class="modal-backdrop" id="gf-import-modal" hidden>
+      <div class="modal" data-liquid-glass>
+        <h3>Импорт .dat</h3>
+        <div class="modal-body">
+          <div class="conv-field">
+            <label>Ссылка на .dat</label>
+            <input type="text" id="gf-import-dat-url"
+                   value="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" />
+            <button class="btn ghost" id="gf-import-dat-url-fetch">Загрузить по URL</button>
+          </div>
+          <div class="conv-field">
+            <label>Или с устройства</label>
+            <button class="btn ghost" id="gf-import-dat-file">Выбрать .dat файл…</button>
+          </div>
+          <div class="status" id="gf-import-dat-status"></div>
+        </div>
+        <div class="import-hint">Категории из .dat добавятся в «Мои категории».</div>
+        <div class="modal-actions">
+          <button class="btn ghost" id="gf-import-cancel">Отмена</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
   <!-- Import modal -->
   <div class="modal-backdrop" id="import-modal" hidden>
-    <div class="modal">
+    <div class="modal" data-liquid-glass>
       <h3>Импорт правил</h3>
       <div class="modal-tabs">
         <button class="tab active" data-tab="text">Текст</button>
@@ -227,6 +323,7 @@
 
   <div class="toast-wrap" id="toast-wrap"></div>
 
+  <script src="liquidglass.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

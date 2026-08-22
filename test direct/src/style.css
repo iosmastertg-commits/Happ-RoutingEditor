@@ -1,18 +1,14 @@
 :root {
-  /* surfaces */
+  /* === dark (default) theme === */
   --bg: #0c0f15;
   --panel: #161b22;
   --panel-2: #1b222c;
   --panel-3: #232c38;
   --line: #29313d;
   --line-2: #3a4651;
-
-  /* text */
   --text: #e6edf3;
   --muted: #8b97a7;
   --muted-2: #66707e;
-
-  /* brand / semantic */
   --accent: #4f8cff;
   --accent-2: #3a6fd8;
   --purple: #a06eff;
@@ -20,21 +16,322 @@
   --green: #2ec27e;
   --green-glow: rgba(46, 194, 126, 0.5);
   --red: #f25555;
-
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --shadow: 0 10px 30px rgba(0,0,0,0.4);
+  --shadow-sm: 0 4px 14px rgba(0,0,0,0.3);
+  --glass-bg: rgba(22,27,34,0.72);
+  --glass-border: rgba(255,255,255,0.06);
+  --glass-blur: 16px;
+  --glass-saturate: 1.3;
+  --topbar-blur: 10px;
+  --body-radial-1: radial-gradient(1100px 620px at 82% -12%, #1a2740 0%, transparent 58%);
+  --body-radial-2: radial-gradient(900px 600px at 0% 110%, #16121f 0%, transparent 55%);
 }
+
+/* === glass / transparent theme (applied via .theme-glass) === */
+/* Dark glass: the backdrop is the photo dimmed over a dark substrate, so the
+   panels stay dark enough for the light text while the photo still reads
+   through. */
+.theme-glass {
+  --bg: rgba(12,15,21,0.35);
+  --panel: rgba(22,27,34,0.55);
+  --panel-2: rgba(27,34,44,0.50);
+  --panel-3: rgba(35,44,56,0.55);
+  --line: rgba(41,49,61,0.40);
+  --line-2: rgba(58,70,81,0.45);
+  --text: #ffffff;
+  --muted: #b6c2d2;
+  --muted-2: #8894a6;
+  --accent: #4f8cff;
+  --accent-2: #3a6fd8;
+  --purple: #a06eff;
+  --amber: #ffac3e;
+  --green: #2ec27e;
+  --green-glow: rgba(46,194,126,0.5);
+  --red: #f25555;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 10px 40px rgba(0,0,0,0.5);
+  --shadow-sm: 0 4px 18px rgba(0,0,0,0.35);
+  --glass-bg: rgba(22,27,34,0.55);
+  --glass-border: rgba(255,255,255,0.10);
+  --glass-blur: 20px;
+  --glass-saturate: 1.4;
+  --topbar-blur: 16px;
+  /* Liquid-glass rim (LiquidGlassSkill): three inset highlights that read as a
+     polished edge. The tint stays colorless — the hue arrives from behind. */
+  --glass-tint-top: rgba(255,255,255,0.06);
+  --glass-tint-bottom: rgba(179,179,179,0.06);
+  --glass-panel-tint: rgba(16,20,28,0.62);
+  --glass-rim-top: rgba(255,255,255,0.5);
+  --glass-rim-hairline: rgba(255,255,255,0.1);
+  --glass-rim-bottom: rgba(255,255,255,0.06);
+  --glass-chip-blur: 6px;
+  --glass-menu-blur: 22px;
+  /* Menu tier: a wash of the overlay surface under heavy blur, so dropdown
+     labels stay readable over arbitrary backdrop content. */
+  --glass-menu-surface: rgba(30,38,50,0.78);
+  /* Modal tier: dark frost over the tint so dialog body text stays legible. */
+  --glass-modal-tint: rgba(8,11,17,0.30);
+  --glass-scrim: rgba(4,7,11,0.50);
+}
+
+/* Glass: children of a glass panel paint no surface of their own (skill
+   rule 3) — no own backdrop blur. The column already supplies the glass; rows
+   inside it get only a translucent hover wash. A per-row backdrop-filter on
+   hundreds of categories would be hundreds of expensive blur layers. */
+.theme-glass .conv-stat-row,
+.theme-glass .cat-head {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-glass .cat-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+/* (.theme-glass .conv-stat-row fill lives further down at the chip tier:
+   rgba(22,28,38,.55) — an earlier duplicate here was dead and removed.) */
+/* Dashed/auxiliary borders stay legible on translucent glass. */
+.theme-glass .empty-hint,
+.theme-glass .gf-collapsed-hint,
+.theme-glass .show-all-btn {
+  border-color: var(--line-2);
+}
+.theme-glass input[type="text"],
+.theme-glass select,
+.theme-glass textarea {
+  background: rgba(12, 15, 21, 0.55);
+  color: #e6edf3;
+}
+/* The generic :focus rule below sets background: var(--bg) — on glass that is
+   MORE transparent than the rest state. Keep the frosted fill on focus. */
+.theme-glass input[type="text"]:focus,
+.theme-glass select:focus,
+.theme-glass textarea:focus {
+  background: rgba(12, 15, 21, 0.62);
+  color: #e6edf3;
+}
+.theme-glass input[type="text"]::placeholder,
+.theme-glass textarea::placeholder {
+  color: #9aa7b8;
+}
+.theme-glass .section-tabs {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+/* ============================================================
+   Liquid Glass (LiquidGlassSkill) — glass theme integration.
+   The refraction half (SVG displacement via backdrop-filter: url(#…))
+   is applied by src/liquidglass.js to every [data-liquid-glass] element.
+   The CSS half below is the tint + rim layer, per the skill's rules:
+   colorless tint (hue arrives from behind), three inset highlights as a
+   polished rim, and the tier system (panel / chip / menu / modal).
+   ============================================================ */
+
+/* --- Panel tier: refraction + rim. The JS engine replaces backdrop-filter
+   with url(#…) (displacement + frosting); tint stays as a wash so text over
+   the busy liquid-metal backdrop stays legible while the edge lens shows. --- */
+.theme-glass [data-liquid-glass] {
+  background:
+    linear-gradient(180deg, var(--glass-panel-tint, rgba(16,20,28,0.42)), var(--glass-panel-tint, rgba(16,20,28,0.42))),
+    linear-gradient(180deg, var(--glass-tint-top), var(--glass-tint-bottom));
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 var(--glass-rim-top),
+    inset 0 0 0 1px var(--glass-rim-hairline),
+    inset 0 -1px 0 var(--glass-rim-bottom);
+}
+/* Keep the topbar's bottom-only border in glass mode — the panel tier would
+   wrap it with a full 1px border. */
+.theme-glass .topbar[data-liquid-glass] {
+  border: none;
+  border-bottom: 1px solid var(--glass-border);
+}
+/* Converter cards sit in two stacked pairs; the deep dark-theme drop shadow
+   pools in the 14px gap between them and reads as a grey band on the light
+   backdrop. Soften it so the white background shows through the gap. */
+.theme-glass .conv-card[data-liquid-glass] {
+  box-shadow:
+    0 6px 18px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 var(--glass-rim-top),
+    inset 0 0 0 1px var(--glass-rim-hairline),
+    inset 0 -1px 0 var(--glass-rim-bottom);
+}
+/* Keep the green drop-target glow while dragging in glass mode. */
+.theme-glass .col.drop-target[data-liquid-glass] {
+  border-color: var(--green);
+  box-shadow:
+    0 0 0 1px var(--green),
+    0 0 30px var(--green-glow),
+    inset 0 1px 0 var(--glass-rim-top),
+    inset 0 0 0 1px var(--glass-rim-hairline),
+    inset 0 -1px 0 var(--glass-rim-bottom);
+}
+
+/* --- Chip tier: CSS-only tint for interactive chips that sit ON the page
+   backdrop (app/geofiles tabs). No refraction and no per-row blur — the data
+   rows below are children of a glass column (skill rule 3: no surface of their
+   own), and a backdrop-filter on every list row would be one GPU layer each. */
+.theme-glass .app-tab,
+.theme-glass .gf-subtab {
+  backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+}
+/* Pill tabs on glass: the page backdrop is bright, so inactive pills get a
+   dark frosted chip fill (readable light text) instead of transparent; hover
+   lifts them, active keeps its accent tint + glow. */
+.theme-glass .app-tab {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-chip-blur)) saturate(var(--glass-saturate));
+}
+.theme-glass .app-tab:hover {
+  background: rgba(38, 48, 64, 0.72);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.theme-glass .app-tab.active {
+  background: rgba(79, 140, 255, 0.22);
+  border-color: rgba(120, 170, 255, 0.5);
+  box-shadow: 0 0 16px rgba(79, 140, 255, 0.3);
+}
+/* In-column chips/tabs/rows: translucent tint only, no blur — the column's
+   refraction already reads through them. Rule rows (incl. the converter's
+   left/right rule cards) lose their solid dark fill so the glass shows. */
+.theme-glass .section-tab,
+.theme-glass .tab,
+.theme-glass .rule,
+.theme-glass .dom,
+.theme-glass .tile,
+.theme-glass .gf-item,
+.theme-glass .gf-src-item,
+.theme-glass .gf-cat-row,
+.theme-glass .gf-cat-head,
+.theme-glass .gf-src-cat-head {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-glass .rule {
+  background: rgba(22, 28, 38, 0.55);
+  border-color: var(--line);
+}
+.theme-glass .rule:hover,
+.theme-glass .dom:hover,
+.theme-glass .gf-item:hover,
+.theme-glass .gf-cat-head:hover,
+.theme-glass .gf-src-cat-head:hover {
+  background: rgba(35, 44, 58, 0.65);
+}
+.theme-glass .rule.flash {
+  background: rgba(46, 194, 126, 0.15);
+}
+
+/* --- Menu tier: toasts float over arbitrary content — heavy blur + a wash
+   of the overlay surface so their labels never depend on what is behind. --- */
+.theme-glass .toast {
+  background: color-mix(in srgb, var(--glass-menu-surface) 55%, transparent);
+  backdrop-filter: blur(var(--glass-menu-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-menu-blur)) saturate(var(--glass-saturate));
+}
+
+/* --- Modal tier: frost over the tint (not instead of it) so dialog body
+   text stays readable over the scrim, while keeping the glass character. --- */
+.theme-glass .modal[data-liquid-glass] {
+  background:
+    linear-gradient(180deg, var(--glass-modal-tint), var(--glass-modal-tint)),
+    linear-gradient(180deg, var(--glass-tint-top), var(--glass-tint-bottom));
+  border-radius: 18px;
+}
+.theme-glass .modal-backdrop {
+  background: var(--glass-scrim);
+}
+
+/* --- Polish pass (glass): chips and small controls whose dark-on-dark
+   borders vanish on the frosted panels get a light hairline + a visible
+   fill, matching the ghost-button treatment. --- */
+.theme-glass .conv-stat-row {
+  background: rgba(22, 28, 38, 0.55);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.theme-glass .conv-stat-row:hover {
+  background: rgba(35, 44, 58, 0.72);
+}
+.theme-glass .section-tab {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+/* Same specificity as .section-tab.active below — must come BEFORE it in the
+   cascade order sense: this file's glass block is earlier, so the active rule
+   would lose. Compensate explicitly so the accent tint survives on glass. */
+.theme-glass .section-tab.active {
+  background: color-mix(in srgb, var(--sec) 22%, rgba(16, 20, 28, 0.55));
+  border-color: var(--sec);
+}
+.theme-glass .section-tab:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.theme-glass .theme-toggle {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.theme-glass .dom-add button {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.theme-glass .dom-add button:hover {
+  border-color: var(--purple);
+  background: rgba(160, 110, 255, 0.14);
+}
+.theme-glass .sec-badge {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* --- Global interaction polish (both themes) --- */
+/* Text selection: brand blue instead of the system default. */
+::selection {
+  background: rgba(79, 140, 255, 0.4);
+  color: #fff;
+}
+/* Keyboard focus: a visible ring on every interactive control. */
+.btn:focus-visible,
+.section-tab:focus-visible,
+.app-tab:focus-visible,
+.gf-subtab:focus-visible,
+.theme-toggle:focus-visible,
+.cat-add:focus-visible,
+.gf-src-add-all:focus-visible,
+.show-all-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Low-performance mode (set by src/liquidglass.js when the real FPS with
+   the SVG refraction attached stays under 50): tear the displacement off and
+   drop every blur to a cheap value so the app stays smooth on a software
+   rasterizer (SwiftShader in Electron) or a weak GPU. --- */
+body.theme-glass.liquid-glass-lowperf {
+  --glass-blur: 6px;
+  --topbar-blur: 6px;
+  --glass-chip-blur: 3px;
+  --glass-menu-blur: 8px;
+  --glass-saturate: 1.2;
+}
+body.theme-glass.liquid-glass-lowperf [data-liquid-glass],
+body.theme-glass.liquid-glass-lowperf .conv-card,
+body.theme-glass.liquid-glass-lowperf .modal {
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  background:
-    radial-gradient(1100px 620px at 82% -12%, #1a2740 0%, transparent 58%),
-    radial-gradient(900px 600px at 0% 110%, #16121f 0%, transparent 55%),
-    var(--bg);
+  background: var(--body-radial-1), var(--body-radial-2), var(--bg);
   color: var(--text);
   font-size: 14px;
   overflow: hidden;
@@ -44,6 +341,63 @@ body {
   flex-direction: column;
 }
 
+/* === Liquid-metal animated background (glass theme) === */
+/* Slowly-drifting chrome gradients behind the translucent panels, echoing the
+   liquid-metal reference: metallic ribbons, specular streaks, soft glow. */
+/* Base glass-mode backdrop: soft ambient glows plus a faint film grain baked
+   into the body background, so the grain reads through every translucent panel.
+   (A background layer = zero repaints and zero z-index conflicts.) */
+/* `isolation: isolate` makes <body> a stacking context so the fixed ::before /
+   ::after backdrop layers (z-index: -1) paint ABOVE the body's own translucent
+   background — otherwise the glass panels sample the dark --bg, not the metal. */
+body.theme-glass {
+  position: relative;
+  isolation: isolate;
+  /* Light substrate so the photo reads as a bright backdrop between the
+     panels; the panels themselves are dark frosted glass on top, which is
+     what keeps the light text readable. */
+  background: #e9ebef;
+  overflow: hidden;
+}
+/* A single large static background image — the whiteabstract Freepik texture.
+   Visible enough that the white shows clearly between the panels, but not so
+   bright that it washes out the light text. The JPG is loaded once; no
+   animation cost and no SVG filter re-resolution per frame. */
+body.theme-glass::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background: url("bg.jpg") center center / cover no-repeat;
+  opacity: 0.7;
+}
+
+/* Chrome text on the brand title in glass mode. */
+.theme-glass .brand-title {
+  background: linear-gradient(
+    92deg,
+    #dfe6f2 0%,
+    #fdfefe 18%,
+    #9fb2cc 34%,
+    #eef2f8 50%,
+    #c3d0e4 66%,
+    #ffffff 82%,
+    #aebdd6 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  /* No animation here: background-position sweeps repaint the text every
+     frame, and on a software rasterizer that's a constant CPU cost. The
+     gradient reads as chrome while static. */
+}
+.theme-glass .logo {
+  filter: drop-shadow(0 0 8px rgba(79, 140, 255, 0.55))
+          drop-shadow(0 0 14px rgba(160, 190, 230, 0.4));
+}
+
 /* ---------- Topbar ---------- */
 .topbar {
   height: 54px;
@@ -51,14 +405,19 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(18, 23, 30, 0.55);
-  backdrop-filter: blur(10px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--topbar-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--topbar-blur)) saturate(var(--glass-saturate));
+  border-bottom: 1px solid var(--glass-border);
 }
 .brand { display: flex; align-items: center; gap: 11px; }
 .logo {
-  font-size: 19px;
-  filter: drop-shadow(0 0 8px rgba(79, 140, 255, 0.7));
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 7px;
+  user-select: none;
+  filter: drop-shadow(0 0 8px rgba(79, 140, 255, 0.45));
 }
 .brand-title {
   font-weight: 700;
@@ -69,13 +428,66 @@ body {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-.topbar-hint {
-  color: var(--muted);
-  font-size: 12.5px;
-  padding: 4px 12px;
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.theme-toggle {
+  background: none;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.02);
+  padding: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(79,140,255,0.2);
+}
+.theme-toggle-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  border: 1px solid var(--line-2);
+  position: relative;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+.theme-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.25s ease;
+}
+.theme-toggle[aria-checked=true] .theme-toggle-thumb {
+  transform: translateX(16px);
+  background: linear-gradient(135deg, #8a6dff, #5b3ee8);
+}
+.theme-toggle[aria-checked=true] .theme-toggle-track {
+  background: rgba(79,140,255,0.15);
+  border-color: var(--accent);
+}
+.theme-toggle-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.theme-toggle-icon::after {
+  content: "✨";
+}
+.theme-toggle[aria-checked=true] .theme-toggle-icon::after {
+  content: "🌙";
 }
 
 /* ---------- Board / columns ---------- */
@@ -87,11 +499,13 @@ body {
   flex: 1;
   min-height: 0;
 }
-.board[hidden], .converter[hidden] { display: none !important; }
+.board[hidden], .converter[hidden], .geofiles[hidden] { display: none !important; }
 .col {
   position: relative;
-  background: linear-gradient(180deg, var(--panel) 0%, #12171e 100%);
-  border: 1px solid var(--line);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
@@ -206,30 +620,30 @@ body {
 .section-tab .tab-count { font-size: 10px; font-weight: 500; opacity: 0.6; }
 
 /* ---------- App tabs ---------- */
+/* Segmented pill switcher instead of folder-style tabs: a recessed track with
+   pill buttons; the active one gets the accent tint + glow. */
 .app-tabs {
   display: flex;
-  gap: 6px;
-  padding: 10px 16px 0;
+  gap: 4px;
+  padding: 10px 16px 6px;
 }
 .app-tab {
-  border: 1px solid var(--line);
-  background: var(--panel-2);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  padding: 8px 18px;
+  border-radius: 999px;
+  padding: 7px 18px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .app-tab:hover { color: var(--text); }
 .app-tab.active {
   color: var(--text);
-  background: var(--panel);
-  border-color: var(--line-2);
-  border-bottom-color: transparent;
-  position: relative;
-  top: 1px;
+  background: rgba(79, 140, 255, 0.16);
+  border-color: rgba(79, 140, 255, 0.45);
+  box-shadow: 0 0 14px rgba(79, 140, 255, 0.18);
 }
 
 /* ---------- Converter ---------- */
@@ -258,8 +672,10 @@ body {
   overflow: hidden;
 }
 .conv-card {
-  background: linear-gradient(180deg, var(--panel) 0%, #12171e 100%);
-  border: 1px solid var(--line);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px;
@@ -290,7 +706,7 @@ body {
   gap: 6px;
 }
 .conv-card-title .count {
-  background: var(--accent);
+  background: rgba(79, 140, 255, 0.28);
   color: #fff;
   border-radius: 99px;
   padding: 1px 7px;
@@ -403,6 +819,81 @@ body {
 .btn.primary:hover { box-shadow: 0 4px 18px rgba(79, 140, 255, 0.45); }
 .btn.ghost { background: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+/* Ghost buttons (Импорт / Экспорт / JSON / Открыть файл) keep their border
+   visible on the dark glass panels — a light hairline + white text. */
+.theme-glass .btn.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #dbe4ef;
+}
+.theme-glass .btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+/* Primary: a darker frosted fill + white text so it reads as a button, with
+   its brand tint on the border. */
+.theme-glass .btn.primary {
+  background: rgba(30, 38, 52, 0.65);
+  color: #fff;
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
+  box-shadow: none;
+  text-shadow: none;
+}
+.theme-glass .btn.primary { border-color: rgba(79, 140, 255, 0.65); }
+/* Загрузить buttons (Geosite / GeoIP / конвертер .dat / Geofiles) and the
+   "+" add buttons (Rules quick-add, Geofiles quick-add, + Категория):
+   transparent glass like the link buttons — blue hairline border, faint
+   glow on hover. */
+.theme-glass #geosite-load,
+.theme-glass #geoip-load,
+.theme-glass #conv-load-dats,
+.theme-glass #gf-src-load,
+.theme-glass #qa-add,
+.theme-glass #gf-new-cat,
+.theme-glass #gf-qa-add {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border-color: rgba(79, 140, 255, 0.65);
+  color: #fff;
+}
+.theme-glass #geosite-load:hover,
+.theme-glass #geoip-load:hover,
+.theme-glass #conv-load-dats:hover,
+.theme-glass #gf-src-load:hover,
+.theme-glass #qa-add:hover,
+.theme-glass #gf-new-cat:hover,
+.theme-glass #gf-qa-add:hover {
+  background: rgba(79, 140, 255, 0.14);
+  box-shadow: 0 0 16px rgba(79, 140, 255, 0.3);
+}
+/* Happ / Incy: fully transparent glass buttons — neither the dark frosted
+   wash nor the brand gradient fill; just a brand-tinted hairline border over
+   the panel glass, with a faint tinted glow on hover. */
+.theme-glass .btn.link-happ,
+.theme-glass .btn.link-incy {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.theme-glass .btn.link-happ { border-color: rgba(160, 110, 255, 0.65); }
+.theme-glass .btn.link-incy { border-color: rgba(45, 212, 191, 0.65); }
+.theme-glass .btn.link-happ:hover {
+  background: rgba(160, 110, 255, 0.14);
+  box-shadow: 0 0 16px rgba(123, 92, 255, 0.3);
+}
+.theme-glass .btn.link-incy:hover {
+  background: rgba(45, 212, 191, 0.14);
+  box-shadow: 0 0 16px rgba(20, 184, 166, 0.3);
+}
+.theme-glass .btn.primary:hover {
+  background: rgba(40, 50, 68, 0.75);
+  transform: translateY(-1px);
+}
 .btn.link-happ, .btn.link-incy {
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -431,7 +922,7 @@ body {
 }
 
 input[type="text"], select, textarea {
-  background: #0c1118;
+  background: var(--bg);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: var(--radius-sm);
@@ -444,7 +935,7 @@ input[type="text"], select, textarea {
 input[type="text"]::placeholder, textarea::placeholder { color: var(--muted-2); }
 input[type="text"]:focus, textarea:focus, select:focus {
   border-color: var(--accent);
-  background: #0d131c;
+  background: var(--bg);
   box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.16);
 }
 
@@ -514,6 +1005,19 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .tag.regexp  { color: #ff9fb2; background: rgba(255, 92, 130, 0.14); border-color: rgba(255, 92, 130, 0.24); }
 .tag.keyword { color: #7fe3dd; background: rgba(45, 212, 191, 0.13); border-color: rgba(45, 212, 191, 0.24); }
 .tag.plain   { color: #9fe0b8; background: rgba(46, 194, 126, 0.14); border-color: rgba(46, 194, 126, 0.24); }
+.tag.full    { color: #ffd166; background: rgba(255, 209, 102, 0.13); border-color: rgba(255, 209, 102, 0.24); }
+
+/* Geofiles items reuse the same colored tags */
+.gf-src-item .tag, .gf-item .tag {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
 
 .rule .val {
   flex: 1;
@@ -673,7 +1177,7 @@ input[type="text"]:focus, textarea:focus, select:focus {
   transition: transform 0.14s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   animation: pop-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-.tile:hover { transform: translateY(-2px); border-color: var(--amber); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
+.tile:hover { transform: translateY(-2px); border-color: var(--amber); box-shadow: var(--shadow); }
 .tile.added {
   border-color: var(--green);
   background: rgba(46, 194, 126, 0.1);
@@ -686,8 +1190,9 @@ input[type="text"]:focus, textarea:focus, select:focus {
 /* ---------- Modal ---------- */
 .modal-backdrop {
   position: fixed; inset: 0;
-  background: rgba(6, 9, 13, 0.62);
-  backdrop-filter: blur(3px);
+  background: rgba(6,9,13,0.55);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
   display: grid; place-items: center;
   z-index: 50;
   animation: fade-in 0.2s ease;
@@ -695,8 +1200,10 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .modal-backdrop[hidden] { display: none !important; }
 .modal {
   width: 520px; max-width: 92vw;
-  background: linear-gradient(180deg, var(--panel) 0%, #13181f 100%);
-  border: 1px solid var(--line-2);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 22px;
   box-shadow: var(--shadow);
@@ -737,7 +1244,7 @@ input[type="text"]:focus, textarea:focus, select:focus {
 
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2a313c; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--panel-3); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--line-2); background-clip: padding-box; }
 
 /* ---------- Animations ---------- */
@@ -752,3 +1259,228 @@ input[type="text"]:focus, textarea:focus, select:focus {
 @keyframes toast-out { to { opacity: 0; transform: translateY(12px); } }
 .spin { display: inline-block; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Geofiles ---------- */
+.geofiles {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  overflow: hidden;
+}
+.gf-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.gf-subtab {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+.gf-subtab:hover { color: var(--text); border-color: var(--line-2); }
+.gf-subtab.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.14);
+}
+.gf-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+.gf-src, .gf-mine {
+  min-height: 0;
+  overflow: hidden;
+}
+#gf-src-tree { padding-bottom: 16px; }
+#gf-src-tree .empty-hint { margin-top: 6px; }
+
+/* Source categories in Geofiles */
+.gf-src-cat { margin: 4px 0; }
+.gf-src-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.gf-src-cat-head:hover { background: var(--panel-2); border-color: var(--line); }
+.gf-src-cat-name { flex: 1; font-weight: 600; font-size: 13px; }
+.gf-src-add-all {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.gf-src-add-all:hover { color: var(--accent); border-color: var(--accent); background: rgba(79, 140, 255, 0.08); }
+.gf-src-cat.cat-done .gf-src-add-all {
+  color: var(--green);
+  border-color: var(--green);
+  background: rgba(46, 194, 126, 0.12);
+  box-shadow: 0 0 10px var(--green-glow);
+}
+.gf-src-cat.cat-done .gf-src-cat-name { color: var(--green); }
+.gf-src-cat-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+.gf-src-cat.open .gf-src-cat-body { max-height: 4000px; }
+.gf-src-inner { padding: 4px 6px 8px 18px; }
+
+.gf-src-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  margin: 2px 0;
+  cursor: grab;
+  transition: background 0.14s ease;
+}
+.gf-src-item:hover { background: var(--panel-2); }
+.gf-src-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; user-select: text; }
+.gf-src-item .circle {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-2);
+  display: grid; place-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 120ms ease;
+}
+.gf-src-item .circle:hover { border-color: var(--accent); color: var(--accent); transform: scale(1.12); }
+.gf-src-item .circle.on {
+  border-color: var(--green);
+  background: var(--green);
+  color: #07120c;
+  font-weight: 700;
+  box-shadow: 0 0 12px var(--green-glow);
+}
+.gf-src-item.added { background: rgba(46, 194, 126, 0.07); }
+.gf-src-item.added .gf-src-item-label { color: var(--green); }
+.gf-src-item.flash { animation: flash-green 0.7s ease; }
+
+/* My categories list */
+#gf-cat-list {
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 0 12px 8px;
+  flex: none;
+}
+.gf-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 3px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.gf-cat-row:hover { border-color: var(--line-2); background: var(--panel-3); }
+.gf-cat-row.active { border-color: var(--accent); background: rgba(79, 140, 255, 0.1); }
+.gf-cat-row-name { flex: 1; font-weight: 600; font-size: 12.5px; }
+.gf-cat-create {
+  display: flex;
+  gap: 6px;
+  padding: 4px 2px 8px;
+}
+.gf-cat-del {
+  border: none; background: transparent; color: var(--muted-2);
+  cursor: pointer; font-size: 12px; padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.gf-cat-del:hover { color: var(--red); background: rgba(242, 85, 85, 0.15); }
+
+/* Category content */
+#gf-cat-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 16px;
+  overflow: hidden;
+}
+#gf-cat-content .empty-hint { margin-top: 4px; }
+.gf-cat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.gf-cat-head-toggle { cursor: pointer; user-select: none; transition: border-color 0.15s ease, background 0.15s ease; }
+.gf-cat-head-toggle:hover { border-color: var(--line-2); background: var(--panel-3); }
+.gf-cat-head-toggle.open { border-color: var(--accent); }
+.gf-chevron { width: 14px; color: var(--muted); font-size: 11px; flex-shrink: 0; transition: transform 0.18s ease; }
+.gf-cat-head-toggle .gf-chevron { color: var(--accent); }
+.gf-cat-title { font-weight: 700; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-collapsed-hint {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 10px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+}
+.gf-add-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.gf-items { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.gf-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  margin: 2px 0;
+  border: 1px solid transparent;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.gf-item:hover { background: var(--panel-2); border-color: var(--line); }
+.gf-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; user-select: text; }
+.gf-item-del {
+  border: none; background: transparent; color: var(--muted-2);
+  cursor: pointer; font-size: 12px; padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.gf-item-del:hover { color: var(--red); background: rgba(242, 85, 85, 0.15); }
+
+/* ============================================================
+   Glass theme — final overrides (keep LAST so they win the cascade
+   over the panel-tier rules that strip button shadows).
+   ============================================================ */
+/* The central converter CTA keeps a soft accent glow in glass mode — the
+   flat panel tier strips the base gradient button's shadow. Three classes on
+   the base rule need three here to win the cascade. */
+.theme-glass .btn.primary.conv-run-btn {
+  box-shadow: 0 4px 22px rgba(79, 140, 255, 0.35);
+}
+.theme-glass .btn.primary.conv-run-btn:hover {
+  box-shadow: 0 6px 26px rgba(79, 140, 255, 0.5);
+}
+.theme-glass .btn.primary:hover {
+  box-shadow: 0 4px 18px rgba(79, 140, 255, 0.4);
+}

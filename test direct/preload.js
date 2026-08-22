@@ -14,5 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   openFile: (opts) => ipcRenderer.invoke('dialog:openFile', opts),
   openText: () => ipcRenderer.invoke('dialog:openText'),
   saveText: (payload) => ipcRenderer.invoke('dialog:saveText', payload),
+  saveDat: (payload) => ipcRenderer.invoke('dialog:saveDat', payload),
+  encodeDat: (payload) => ipcRenderer.invoke('dat:encode', payload),
   clipboardWrite: (text) => ipcRenderer.invoke('clipboard:write', text)
 });

@@ -1,5 +1,47 @@
 'use strict';
 
+/* ============================ Theme ============================ */
+// Two themes: "dark" (default) and "glass" (translucent, Apple-style).
+// Persisted in localStorage and applied by toggling .theme-glass on <body>.
+const THEME_KEY = 'ruleflow-theme';
+
+function applyTheme(theme) {
+  document.body.classList.toggle('theme-glass', theme === 'glass');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.setAttribute('aria-checked', theme === 'glass');
+    btn.title = theme === 'glass' ? 'Переключить на тёмную тему' : 'Переключить на прозрачную тему';
+  }
+  try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
+}
+
+function initTheme() {
+  let theme = 'dark';
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'glass' || saved === 'dark') theme = saved;
+  } catch (_) {}
+  applyTheme(theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const next = document.body.classList.contains('theme-glass') ? 'dark' : 'glass';
+      applyTheme(next);
+      // LiquidGlass refraction (src/liquidglass.js) engages only while the
+      // glass theme is active; re-scan / tear down on each user toggle. The
+      // boot-time scan happens once in LiquidGlass.init() below, so a saved
+      // glass theme isn't scanned twice at startup.
+      if (window.LiquidGlass) window.LiquidGlass.refresh();
+    });
+  }
+}
+
+initTheme();
+
+// LiquidGlass refraction engine: start it once the DOM is parsed (script is at
+// the end of <body>). It gates itself on the glass theme being active.
+if (window.LiquidGlass) window.LiquidGlass.init();
+
 /* ============================ State ============================ */
 const state = {
   rules: [],            // { id, type, value, section? }
@@ -81,9 +123,14 @@ document.querySelectorAll('.app-tab').forEach((tab) => {
     const view = tab.dataset.view;
     $('#view-editor').hidden = view !== 'editor';
     $('#view-converter').hidden = view !== 'converter';
+    $('#view-geofiles').hidden = view !== 'geofiles';
     if (view === 'converter') {
       renderConvSrcList();
       updateConvTabCounts();
+    } else if (view === 'geofiles') {
+      gfRenderTree();
+      gfRenderCatList();
+      gfRenderCatContent();
     }
   });
 });
@@ -438,8 +485,8 @@ function updateRulesCount() {
   const count = state.rules.filter(r => r.section === state.currentSection).length;
   $('#rules-count').textContent = count;
   $('#rules-empty').style.display = count ? 'none' : 'block';
-  // update tab badges
-  document.querySelectorAll('.section-tab').forEach((tab) => {
+  // update editor tab badges only — converter tabs own their counts
+  document.querySelectorAll('#view-editor .section-tab').forEach((tab) => {
     const s = tab.dataset.section;
     const c = state.rules.filter(r => r.section === s).length;
     const badge = tab.querySelector('.tab-count') || el('span', 'tab-count', c);
@@ -770,6 +817,8 @@ function decodeRoutingLink(text) {
 }
 
 async function importRules(toAdd) {
+  // Same ordering as the converter: regexp -> keyword -> plain -> domain (stable).
+  toAdd.sort((a, b) => (SITE_TYPE_ORDER[a.type] ?? 99) - (SITE_TYPE_ORDER[b.type] ?? 99));
   let n = 0;
   const chunkSize = 500;
   const total = toAdd.length;
@@ -905,9 +954,10 @@ async function loadGeosite() {
   status.innerHTML = 'Загрузка <span class="spin">⟳</span>';
   try {
     let payload;
+    let f = null;
     if (/^https?:\/\//i.test(url)) payload = { url };
     else { // treat as local file path -> open dialog instead
-      const f = await window.api.openFile({ filters: [{ name: 'dat', extensions: ['dat'] }] });
+      f = await window.api.openFile({ filters: [{ name: 'dat', extensions: ['dat'] }] });
       if (!f) { status.textContent = ''; return; }
       payload = { fileData: f.data };
     }
@@ -1166,9 +1216,10 @@ async function loadGeoip() {
   status.innerHTML = 'Загрузка <span class="spin">⟳</span>';
   try {
     let payload;
+    let f = null;
     if (/^https?:\/\//i.test(url)) payload = { url };
     else {
-      const f = await window.api.openFile({ filters: [{ name: 'dat', extensions: ['dat'] }] });
+      f = await window.api.openFile({ filters: [{ name: 'dat', extensions: ['dat'] }] });
       if (!f) { status.textContent = ''; return; }
       payload = { fileData: f.data };
     }
@@ -1221,9 +1272,12 @@ function createTileEl(c) {
 }
 
 /* ============================ Section tabs ============================ */
-document.querySelectorAll('.section-tab').forEach((tab) => {
+/* Editor-only: the converter's .conv-section-tabs have their own handlers
+   (see convSrcTabs above) — a global selector here would fight them for the
+   .active class and overwrite state.currentSection from converter clicks. */
+document.querySelectorAll('#view-editor .section-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.section-tab').forEach((t) => t.classList.remove('active'));
+    document.querySelectorAll('#view-editor .section-tab').forEach((t) => t.classList.remove('active'));
     tab.classList.add('active');
     state.currentSection = tab.dataset.section;
     renderRulesList();
@@ -1234,3 +1288,681 @@ document.querySelectorAll('.section-tab').forEach((tab) => {
 
 /* ============================ Init ============================ */
 updateRulesCount();
+
+/* ============================ Geofiles ============================ */
+// Fully standalone tab — its own state, not shared with Editor/Converter.
+const gfState = {
+  mode: 'geosite',      // 'geosite' | 'geoip'
+  srcMeta: [],          // [{ code, count }] loaded source categories
+  srcCache: {},         // code -> items (domains [{type,value}] or cidr [string])
+  cats: { geosite: [], geoip: [] }, // [{ code, items }] — items: domains or cidrs
+  selected: null        // code of selected "my category"
+};
+let gfContentOpen = false;
+
+$('#gf-src-load').addEventListener('click', gfLoadSource);
+$('#gf-src-file').addEventListener('click', async () => {
+  const isGeo = gfState.mode === 'geosite';
+  const f = await window.api.openFile({ filters: [{ name: (isGeo ? 'Geosite' : 'GeoIP') + ' dat', extensions: ['dat'] }] });
+  if (!f) return;
+  await gfApplySource({ fileData: f.data });
+});
+$('#gf-src-filter').addEventListener('input', gfRenderTree);
+
+let gfSearchTimer = null;
+$('#gf-src-search').addEventListener('input', () => {
+  clearTimeout(gfSearchTimer);
+  gfSearchTimer = setTimeout(gfRunSearch, 220);
+});
+
+// My-categories search: filter categories by name, filter items by domain.
+$('#gf-cat-filter').addEventListener('input', gfRenderCatList);
+$('#gf-cat-search').addEventListener('input', gfRenderCatContent);
+
+document.querySelectorAll('.gf-subtab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.gf-subtab').forEach((t) => t.classList.remove('active'));
+    tab.classList.add('active');
+    gfState.mode = tab.dataset.gf;
+    gfState.selected = null; // categories are per-mode — drop selection from the other mode
+    const def = gfState.mode === 'geosite'
+      ? 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+      : 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat';
+    if (!$('#gf-src-url').value.trim() || gfState.srcMeta.length === 0) $('#gf-src-url').value = def;
+    gfState.srcMeta = [];
+    gfState.srcCache = {};
+    $('#gf-src-status').textContent = '';
+    $('#gf-src-search').value = '';
+    gfRenderTree();
+    gfRenderCatList();
+    gfRenderCatContent();
+  });
+});
+
+async function gfLoadSource() {
+  const url = $('#gf-src-url').value.trim();
+  const status = $('#gf-src-status');
+  status.className = 'status';
+  status.innerHTML = 'Загрузка <span class="spin">⟳</span>';
+  try {
+    let payload;
+    if (/^https?:\/\//i.test(url)) payload = { url };
+    else {
+      const f = await window.api.openFile({ filters: [{ name: (gfState.mode === 'geosite' ? 'Geosite' : 'GeoIP') + ' dat', extensions: ['dat'] }] });
+      if (!f) { status.textContent = ''; return; }
+      payload = { fileData: f.data };
+    }
+    await gfApplySource(payload);
+  } catch (err) {
+    status.className = 'status error';
+    status.textContent = 'Ошибка: ' + err.message;
+  }
+}
+
+async function gfApplySource(payload) {
+  const status = $('#gf-src-status');
+  const res = gfState.mode === 'geosite' ? await window.api.geositeLoad(payload) : await window.api.geoipLoad(payload);
+  gfState.srcMeta = gfState.mode === 'geosite' ? res.categories : res.countries;
+  gfState.srcCache = {};
+  status.className = 'status ok';
+  status.textContent = `Загружено: ${gfState.srcMeta.length} категорий`;
+  gfRenderTree();
+}
+
+async function gfLoadItems(code) {
+  if (gfState.srcCache[code]) return gfState.srcCache[code];
+  const isGeo = gfState.mode === 'geosite';
+  let items;
+  if (isGeo) items = await window.api.geositeDomains(code);
+  else items = await window.api.geoipCidrs(code);
+  if (!items) items = [];
+  gfState.srcCache[code] = items;
+  return items;
+}
+
+async function gfRenderTree() {
+  // Content-search takes over the tree when active.
+  if ($('#gf-src-search').value.trim()) { await gfRunSearch(); return; }
+  const tree = $('#gf-src-tree');
+  const filter = $('#gf-src-filter').value.trim().toUpperCase();
+  tree.innerHTML = '';
+  const list = filter ? gfState.srcMeta.filter((c) => c.code.includes(filter)) : gfState.srcMeta;
+  if (!list.length) {
+    tree.innerHTML = '<div class="empty-hint">Загрузите источник, чтобы увидеть список.</div>';
+    return;
+  }
+  // GeoIP: render country tiles like the editor (click = add all its CIDRs to a category).
+  if (gfState.mode === 'geoip') {
+    const grid = el('div', 'tiles gf-geoip-tiles');
+    for (const c of list) grid.appendChild(gfSrcTileEl(c));
+    tree.appendChild(grid);
+    return;
+  }
+  for (const cat of list) tree.appendChild(gfSrcCatEl(cat));
+  // Refresh +/✓ circles and "＋ все" done-marks after any re-render.
+  await gfSyncSrcMarks();
+}
+
+// GeoIP country tile — click adds the whole country's CIDRs to the selected category.
+function gfSrcTileEl(c) {
+  const tile = el('div', 'tile');
+  tile.append(el('div', 'tile-code', c.code), el('div', 'tile-count', c.count + ' cidr'));
+  tile.addEventListener('click', async () => {
+    const items = await gfLoadItems(c.code);
+    if (!items.length) return;
+    const cats = gfState.cats[gfState.mode];
+    let target = cats.find((x) => x.code === c.code);
+    if (!target) {
+      target = { code: c.code, items: [] };
+      cats.push(target);
+    }
+    gfState.selected = target.code;
+    const seen = new Set(target.items.map((it) => String(it).toLowerCase()));
+    let n = 0;
+    for (const cidr of items) {
+      const key = String(cidr).toLowerCase();
+      if (!seen.has(key)) { target.items.push(cidr); seen.add(key); n++; }
+    }
+    gfContentOpen = true;
+    gfRenderCatList();
+    gfRenderCatContent();
+    toast('geoip:' + c.code + ': добавлено ' + n, 'ok');
+  });
+  return tile;
+}
+
+async function gfRunSearch() {
+  const q = $('#gf-src-search').value.trim();
+  const status = $('#gf-src-status');
+  const tree = $('#gf-src-tree');
+  if (!q) { gfRenderTree(); return; }
+  if (gfState.mode === 'geoip') {
+    // GeoIP has no domain content search — fall back to country-code filter.
+    const filter = q.toUpperCase();
+    tree.innerHTML = '';
+    const list = gfState.srcMeta.filter((c) => c.code.includes(filter));
+    if (!list.length) {
+      status.className = 'status';
+      status.textContent = `По «${q}» ничего не найдено`;
+      return;
+    }
+    for (const cat of list) tree.appendChild(gfSrcCatEl(cat));
+    status.className = 'status';
+    status.textContent = `Найдено стран: ${list.length}`;
+    return;
+  }
+  if (!gfState.srcMeta.length) {
+    status.className = 'status error';
+    status.textContent = 'Сначала загрузите geosite.dat';
+    return;
+  }
+  status.className = 'status';
+  status.innerHTML = 'Поиск <span class="spin">⟳</span>';
+  const results = await window.api.geositeSearch(q);
+  tree.innerHTML = '';
+  if (!results.length) {
+    status.className = 'status';
+    status.textContent = `По «${q}» ничего не найдено`;
+    return;
+  }
+  let totalHits = 0;
+  for (const r of results) {
+    totalHits += r.matches.length;
+    tree.appendChild(gfSearchCatEl(r));
+  }
+  status.className = 'status ok';
+  status.textContent = `Найдено: ${totalHits} доменов в ${results.length} категориях`;
+  gfSyncSrcMarks();
+}
+
+// Category rendered from content-search results, with matches and a "+" per domain.
+function gfSearchCatEl(r) {
+  const wrap = el('div', 'gf-src-cat open');
+  const head = el('div', 'gf-src-cat-head');
+  const name = el('span', 'gf-src-cat-name', r.code);
+  const cnt = el('span', 'cat-count', '(' + r.matches.length + '/' + r.total + ')');
+  const addAll = gfAddAllBtn(r.code);
+  head.append(name, cnt, addAll);
+  const body = el('div', 'gf-src-cat-body');
+  wrap.append(head, body);
+  // Reuse the standard source body renderer (matches are already domain objects).
+  gfFillSrcBody(body, r.matches);
+  return wrap;
+}
+
+// "＋ все" button: adds the whole source category into "My categories".
+function gfAddAllBtn(code) {
+  const addAll = el('button', 'gf-src-add-all', '＋ все');
+  addAll.title = 'Перенести всю категорию в «Мои категории»';
+  addAll.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const items = await gfLoadItems(code);
+    if (!items.length) return;
+    const cats = gfState.cats[gfState.mode];
+    let target = cats.find((c) => c.code === code);
+    if (!target) {
+      target = { code, items: [] };
+      cats.push(target);
+    }
+    gfState.selected = target.code;
+    const seen = new Set(target.items.map((it) => String(it.value != null ? it.value : it).toLowerCase()));
+    let n = 0;
+    for (const it of items) {
+      const key = String(it.value != null ? it.value : it).toLowerCase();
+      if (!seen.has(key)) { target.items.push(it); seen.add(key); n++; }
+    }
+    gfContentOpen = true;
+    // Clear filters so the newly added category and its items are always visible.
+    $('#gf-cat-filter').value = '';
+    $('#gf-cat-search').value = '';
+    gfRenderCatList();
+    gfRenderCatContent();
+    gfSyncSrcMarks();
+    toast('Категория ' + code + ': перенесено ' + n, 'ok');
+  });
+  return addAll;
+}
+
+function gfSrcCatEl(cat) {
+  const wrap = el('div', 'gf-src-cat');
+  const head = el('div', 'gf-src-cat-head');
+  const name = el('span', 'gf-src-cat-name', cat.code);
+  const cnt = el('span', 'cat-count', '(' + cat.count + ')');
+  const addAll = gfAddAllBtn(cat.code);
+  head.append(name, cnt, addAll);
+  const body = el('div', 'gf-src-cat-body');
+  wrap.append(head, body);
+
+  let open = false;
+  head.addEventListener('click', async (e) => {
+    if (e.target.closest('button')) return;
+    open = !open;
+    wrap.classList.toggle('open', open);
+    if (open && !body._loaded) {
+      const items = await gfLoadItems(cat.code);
+      body._loaded = true;
+      gfFillSrcBody(body, items);
+    }
+  });
+
+  return wrap;
+}
+
+// Sync the +/✓ circles in the source tree to reflect what's already in the selected category.
+async function gfSyncSrcMarks() {
+  if (!gfState.selected) return;
+  const cat = gfState.cats[gfState.mode].find((c) => c.code === gfState.selected);
+  if (!cat) return;
+  const isGeo = gfState.mode === 'geosite';
+  const added = new Set(cat.items.map((it) => String(isGeo ? it.value : it).toLowerCase()));
+  document.querySelectorAll('#gf-src-tree .gf-src-item').forEach((row) => {
+    const lbl = row.querySelector('.gf-src-item-label');
+    if (!lbl) return;
+    const key = String(lbl.textContent).trim().toLowerCase();
+    const isAdded = added.has(key);
+    row.classList.toggle('added', isAdded);
+    const circle = row.querySelector('.circle');
+    if (circle) {
+      circle.classList.toggle('on', isAdded);
+      circle.textContent = isAdded ? '✓' : '+';
+    }
+  });
+  await gfSyncSrcAll();
+}
+
+// Mark "＋ все" buttons as done when a matching category in "My categories" already contains every domain/IP.
+async function gfSyncSrcAll() {
+  const isGeo = gfState.mode === 'geosite';
+  const cats = gfState.cats[gfState.mode];
+  const srcCats = document.querySelectorAll('#gf-src-tree .gf-src-cat');
+  for (const wrap of srcCats) {
+    const nameEl = wrap.querySelector('.gf-src-cat-name');
+    const addAll = wrap.querySelector('.gf-src-add-all');
+    if (!nameEl || !addAll) continue;
+    const code = nameEl.textContent.trim();
+    const items = await gfLoadItems(code);
+    if (!items.length) continue;
+    // Compare against the "my category" with the same code (e.g. ROBLOX -> ROBLOX),
+    // falling back to the currently selected category if no same-named one exists.
+    let match = cats.find((c) => c.code === code);
+    if (!match) match = cats.find((c) => c.code === gfState.selected);
+    const matchSet = new Set((match ? match.items : []).map((it) => String(isGeo ? it.value : it).toLowerCase()));
+    const all = items.every((it) => matchSet.has(String(isGeo ? it.value : it).toLowerCase()));
+    wrap.classList.toggle('cat-done', all);
+    addAll.textContent = all ? '✓ все' : '＋ все';
+    addAll.title = all ? 'Вся категория уже в «Моих категориях»' : 'Перенести всю категорию в «Мои категории»';
+  }
+}
+
+// Map a domain/rule type to the editor's colored tag class.
+function gfTagType(type, isGeo) {
+  if (!isGeo) return 'geoip';
+  const t = String(type || 'domain').toLowerCase();
+  if (t === 'regex' || t === 'regexp') return 'regexp';
+  if (t === 'keyword') return 'keyword';
+  if (t === 'plain') return 'plain';
+  if (t === 'full') return 'full';
+  return 'domain';
+}
+
+// Editor-style colored tag span.
+function gfTagSpan(type, isGeo) {
+  const cls = gfTagType(type, isGeo);
+  return el('span', 'tag ' + cls, cls === 'regexp' ? 'regexp' : cls);
+}
+
+function gfFillSrcBody(body, items) {
+  body.innerHTML = '';
+  const inner = el('div', 'gf-src-inner');
+  const isGeo = gfState.mode === 'geosite';
+  // Build a set of already-added keys for the currently selected category.
+  const addedKeys = new Set();
+  if (gfState.selected) {
+    const cat = gfState.cats[gfState.mode].find((c) => c.code === gfState.selected);
+    if (cat) {
+      for (const it of cat.items) {
+        addedKeys.add(String(isGeo ? it.value : it).toLowerCase());
+      }
+    }
+  }
+  for (const item of items) {
+    const row = el('div', 'gf-src-item');
+    const label = isGeo ? item.value : item;
+    const key = String(isGeo ? item.value : item).toLowerCase();
+    const isAdded = addedKeys.has(key);
+    if (isAdded) row.classList.add('added');
+    // Editor-style circle with +/✓
+    const circle = el('div', 'circle' + (isAdded ? ' on' : ''));
+    circle.textContent = isAdded ? '✓' : '+';
+    circle.title = isAdded ? 'Уже добавлено' : 'Добавить в категорию';
+    circle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      gfAddItem(isGeo ? { type: item.type, value: item.value } : item);
+    });
+    row.append(circle, gfTagSpan(item.type, isGeo), el('span', 'gf-src-item-label', label));
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'copy';
+      const data = JSON.stringify(isGeo ? { type: item.type, value: item.value } : { cidr: item });
+      e.dataTransfer.setData('application/x-gf-item', data);
+    });
+    inner.appendChild(row);
+  }
+  body.appendChild(inner);
+}
+
+function gfAddItem(itemOrCidr) {
+  // Auto-select the first category if none is chosen yet.
+  if (!gfState.selected) {
+    const cats = gfState.cats[gfState.mode];
+    if (cats.length) gfState.selected = cats[0].code;
+  }
+  if (!gfState.selected) return toast('Сначала создайте категорию справа (＋ Категория)', 'err');
+  const cat = gfState.cats[gfState.mode].find((c) => c.code === gfState.selected);
+  if (!cat) return toast('Категория не найдена', 'err');
+  const isGeo = gfState.mode === 'geosite';
+  const key = isGeo ? String(itemOrCidr.value).toLowerCase() : String(itemOrCidr).toLowerCase();
+  const exists = cat.items.some((it) => (isGeo ? String(it.value) : String(it)).toLowerCase() === key);
+  if (exists) return toast('Уже есть', 'err');
+  cat.items.push(itemOrCidr);
+  gfContentOpen = true; // show the result right away
+  // Clear the item search so the added item is visible.
+  $('#gf-cat-search').value = '';
+  gfRenderCatContent();
+  gfRenderCatList();
+  gfSyncSrcMarks();
+  // Flash the matching source row green, editor-style.
+  const rows = document.querySelectorAll('#gf-src-tree .gf-src-item');
+  rows.forEach((row) => {
+    const lbl = row.querySelector('.gf-src-item-label');
+    if (lbl && lbl.textContent.trim().toLowerCase() === key) {
+      row.classList.remove('flash');
+      void row.offsetWidth;
+      row.classList.add('flash');
+    }
+  });
+  toast('Перенесено', 'ok');
+}
+
+// ---- My categories list (right column) ----
+function gfRenderCatList() {
+  const list = $('#gf-cat-list');
+  list.innerHTML = '';
+  const filter = $('#gf-cat-filter').value.trim().toUpperCase();
+  const cats = filter
+    ? gfState.cats[gfState.mode].filter((c) => c.code.includes(filter))
+    : gfState.cats[gfState.mode];
+  for (const c of cats) {
+    const row = el('div', 'gf-cat-row');
+    if (c.code === gfState.selected) row.classList.add('active');
+    const name = el('span', 'gf-cat-row-name', c.code);
+    const cnt = el('span', 'cat-count', c.items.length + '');
+    const delBtn = el('button', 'gf-cat-del', '✕');
+    delBtn.title = 'Удалить категорию';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const all = gfState.cats[gfState.mode];
+      const idx = all.findIndex((x) => x.code === c.code);
+      if (idx >= 0) all.splice(idx, 1);
+      if (gfState.selected === c.code) { gfState.selected = null; gfRenderCatContent(); }
+      gfRenderCatList();
+      gfUpdateCount();
+    });
+    row.append(name, cnt, delBtn);
+    row.addEventListener('click', () => {
+      // Clicking the already-active category deselects it.
+      if (gfState.selected === c.code) {
+        gfState.selected = null;
+        gfRenderCatContent();
+        gfRenderCatList();
+        return;
+      }
+      gfState.selected = c.code;
+      gfContentOpen = false;
+      document.querySelectorAll('.gf-cat-row').forEach((r) => r.classList.remove('active'));
+      row.classList.add('active');
+      gfRenderCatContent();
+    });
+    list.appendChild(row);
+  }
+  gfUpdateCount();
+}
+
+function gfUpdateCount() {
+  $('#gf-mine-count').textContent = gfState.cats[gfState.mode].length;
+}
+
+// ---- My category content (right bottom) ----
+function gfRenderCatContent() {
+  const container = $('#gf-cat-content');
+  container.innerHTML = '';
+  if (!gfState.selected) {
+    container.innerHTML = '<div class="empty-hint">Выберите категорию слева.</div>';
+    return;
+  }
+  const cat = gfState.cats[gfState.mode].find((c) => c.code === gfState.selected);
+  if (!cat) { container.innerHTML = '<div class="empty-hint">Категория не найдена.</div>'; return; }
+
+  // Filter items by the search field.
+  const searchQ = $('#gf-cat-search').value.trim().toLowerCase();
+  const items = searchQ
+    ? cat.items.filter((it) => String(it.value != null ? it.value : it).toLowerCase().includes(searchQ))
+    : cat.items;
+  const itemCount = items.length;
+  const totalCount = cat.items.length;
+  const head = el('div', 'gf-cat-head gf-cat-head-toggle' + (gfContentOpen ? ' open' : ''));
+  const chev = el('span', 'gf-chevron', gfContentOpen ? '▼' : '▶');
+  const title = el('span', 'gf-cat-title', cat.code);
+  const cnt = el('span', 'cat-count', '(' + itemCount + ')');
+  const renameBtn = el('button', 'btn ghost', '✎');
+  renameBtn.title = 'Переименовать';
+  renameBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const input = el('input');
+    input.type = 'text';
+    input.value = cat.code;
+    input.style = 'flex:1;min-width:0';
+    const okBtn = el('button', 'btn primary', 'OK');
+    title.replaceWith(input);
+    renameBtn.replaceWith(okBtn);
+    input.focus();
+    input.select();
+    const commit = () => {
+      const nv = input.value.trim();
+      if (nv && nv.toUpperCase() !== cat.code) {
+        const cats = gfState.cats[gfState.mode];
+        const dup = cats.some((c) => c.code === nv.toUpperCase());
+        if (!dup) { cat.code = nv.toUpperCase(); gfState.selected = cat.code; }
+        else toast('Такая категория уже есть', 'err');
+      }
+      gfRenderCatList();
+      gfRenderCatContent();
+    };
+    okBtn.addEventListener('click', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit();
+      else if (e.key === 'Escape') { gfRenderCatList(); gfRenderCatContent(); }
+    });
+  });
+  head.append(chev, title, cnt, renameBtn);
+  head.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    gfContentOpen = !gfContentOpen;
+    gfRenderCatContent();
+  });
+  container.appendChild(head);
+
+  if (gfContentOpen) {
+    const itemsContainer = el('div', 'gf-items');
+    const isGeo = gfState.mode === 'geosite';
+    items.forEach((item, i) => {
+      const row = el('div', 'gf-item');
+      const label = isGeo ? item.value : item;
+      row.append(gfTagSpan(item.type, isGeo));
+      row.append(el('span', 'gf-item-label', label));
+      const delBtn = el('button', 'gf-item-del', '✕');
+      delBtn.addEventListener('click', () => {
+        cat.items.splice(cat.items.indexOf(item), 1);
+        gfRenderCatContent();
+        gfRenderCatList();
+      });
+      row.appendChild(delBtn);
+      itemsContainer.appendChild(row);
+    });
+    container.appendChild(itemsContainer);
+  } else if (itemCount > 0) {
+    const hint = el('div', 'gf-collapsed-hint',
+      itemCount + ' ' + (gfState.mode === 'geosite' ? 'доменов' : 'CIDR') + ' — нажмите на заголовок, чтобы показать');
+    container.appendChild(hint);
+  } else if (searchQ) {
+    const hint = el('div', 'gf-collapsed-hint', 'По «' + searchQ + '» ничего не найдено');
+    container.appendChild(hint);
+  }
+}
+
+// ---- Drop target on my-categories column ----
+$('#gf-cat-list').addEventListener('dragover', (e) => {
+  if (e.dataTransfer.types.includes('application/x-gf-item')) e.preventDefault();
+});
+$('#gf-cat-list').addEventListener('drop', (e) => {
+  if (!gfState.selected) return;
+  const raw = e.dataTransfer.getData('application/x-gf-item');
+  if (!raw) return;
+  e.preventDefault();
+  try {
+    const data = JSON.parse(raw);
+    if (gfState.mode === 'geosite' && data.type != null) gfAddItem(data);
+    else if (data.cidr) gfAddItem(data.cidr);
+  } catch (_) {}
+});
+
+// ---- Quick add (domain/regexp/keyword/plain) into selected category ----
+$('#gf-qa-add').addEventListener('click', gfQuickAdd);
+$('#gf-qa-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') gfQuickAdd(); });
+function gfQuickAdd() {
+  const type = $('#gf-qa-type').value;
+  const v = $('#gf-qa-input').value;
+  if (!v.trim()) return;
+  if (type === 'regexp') {
+    gfAddItem({ type: 'regex', value: v.trim() });
+  } else {
+    gfAddItem({ type, value: v.trim() });
+  }
+  $('#gf-qa-input').value = '';
+  $('#gf-qa-input').focus();
+}
+
+// ---- New category (inline input) ----
+$('#gf-new-cat').addEventListener('click', () => {
+  const listWrap = $('#gf-cat-list');
+  const row = el('div', 'gf-cat-create');
+  const input = el('input');
+  input.type = 'text';
+  input.placeholder = 'имя категории (напр. MY-SITES)…';
+  input.style = 'flex:1;min-width:0';
+  const okBtn = el('button', 'btn primary', 'OK');
+  row.append(input, okBtn);
+  listWrap.prepend(row);
+  input.focus();
+  const commit = () => {
+    const name = input.value.trim();
+    if (name) {
+      const code = name.toUpperCase();
+      const cats = gfState.cats[gfState.mode];
+      if (cats.some((c) => c.code === code)) toast('Такая категория уже есть', 'err');
+      else {
+        cats.push({ code, items: [] });
+        gfState.selected = code;
+        gfContentOpen = true;
+        gfRenderCatList();
+        gfRenderCatContent();
+      }
+    }
+    row.remove();
+  };
+  okBtn.addEventListener('click', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit();
+    else if (e.key === 'Escape') row.remove();
+  });
+});
+
+// ---- Export .dat ----
+$('#gf-export').addEventListener('click', async () => {
+  const cats = gfState.cats[gfState.mode].filter((c) => c.items.length);
+  if (!cats.length) return toast('Нет непустых категорий', 'err');
+  try {
+    let payload;
+    if (gfState.mode === 'geosite') {
+      payload = { kind: 'geosite', categories: cats.map((c) => ({ code: c.code, domains: c.items })) };
+    } else {
+      payload = { kind: 'geoip', categories: cats.map((c) => ({ code: c.code, cidrs: c.items })) };
+    }
+    const buf = await window.api.encodeDat(payload);
+    const defaultName = gfState.mode === 'geosite' ? 'geosite.dat' : 'geoip.dat';
+    const ok = await window.api.saveDat({ defaultName, buffer: buf });
+    if (ok) toast('Экспортирован ' + defaultName, 'ok');
+  } catch (err) {
+    toast('Ошибка: ' + err.message, 'err');
+  }
+});
+
+// ---- Import .dat (Geofiles): load a geosite/geoip .dat and add its categories to "My categories"
+const gfImportModal = $('#gf-import-modal');
+$('#gf-import').addEventListener('click', () => { gfImportModal.hidden = false; $('#gf-import-dat-url').focus(); });
+$('#gf-import-cancel').addEventListener('click', () => { gfImportModal.hidden = true; });
+gfImportModal.addEventListener('click', (e) => { if (e.target === gfImportModal) gfImportModal.hidden = true; });
+
+async function gfImportDat(payload, source) {
+  const status = $('#gf-import-dat-status');
+  status.className = 'status';
+  status.innerHTML = 'Загрузка .dat <span class="spin">⟳</span>';
+  try {
+    const isGeo = gfState.mode === 'geosite';
+    const res = isGeo ? await window.api.geositeLoad(payload) : await window.api.geoipLoad(payload);
+    const meta = isGeo ? res.categories : res.countries;
+    status.className = 'status ok';
+    status.textContent = 'Категорий в .dat: ' + meta.length;
+    // Import every category into "My categories" (merge into existing with same code).
+    const cats = gfState.cats[gfState.mode];
+    let total = 0;
+    for (const m of meta) {
+      let target = cats.find((c) => c.code === m.code);
+      if (!target) { target = { code: m.code, items: [] }; cats.push(target); }
+      const items = isGeo ? await window.api.geositeDomains(m.code) : await window.api.geoipCidrs(m.code);
+      const seen = new Set(target.items.map((it) => String(it.value != null ? it.value : it).toLowerCase()));
+      for (const it of items || []) {
+        const key = String(it.value != null ? it.value : it).toLowerCase();
+        if (!seen.has(key)) {
+          if (isGeo) target.items.push({ type: it.type || 'domain', value: it.value });
+          else target.items.push(it);
+          seen.add(key);
+          total++;
+        }
+      }
+    }
+    gfState.selected = cats.length ? cats[0].code : null;
+    gfContentOpen = false;
+    gfState.srcCache = {}; // the .dat store changed — invalidate cached domains
+    gfRenderCatList();
+    gfRenderCatContent();
+    gfSyncSrcMarks();
+    toast('Импортировано .dat: ' + meta.length + ' категорий, ' + total + ' элементов', 'ok');
+  } catch (err) {
+    status.className = 'status error';
+    status.textContent = 'Ошибка: ' + err.message;
+  }
+}
+
+$('#gf-import-dat-url-fetch').addEventListener('click', () => {
+  const url = $('#gf-import-dat-url').value.trim();
+  if (!url) return;
+  gfImportDat({ url }, url);
+});
+
+$('#gf-import-dat-file').addEventListener('click', async () => {
+  const isGeo = gfState.mode === 'geosite';
+  const f = await window.api.openFile({ filters: [{ name: (isGeo ? 'Geosite' : 'GeoIP') + ' dat', extensions: ['dat'] }] });
+  if (!f) return;
+  gfImportDat({ fileData: f.data }, f.path.split('\\').pop());
+});

@@ -153,4 +153,107 @@ function parseGeoIPList(buf) {
   return countries;
 }
 
-module.exports = { parseGeoSiteList, parseGeoIPList };
+// ========================================================================
+// Protobuf writer — encode GeoSiteList / GeoIPList back to .dat format
+// ========================================================================
+
+class Writer {
+  constructor() { this.buf = []; }
+  raw(data) {
+    if (typeof data === 'number') this.buf.push(data & 0xff);
+    else for (let i = 0; i < data.length; i++) this.buf.push(data[i]);
+  }
+  varint(v) {
+    v = BigInt(v);
+    while (v >= 0x80n) {
+      this.buf.push(Number(v & 0x7fn) | 0x80);
+      v >>= 7n;
+    }
+    this.buf.push(Number(v));
+  }
+  tag(field, wire) { this.varint((field << 3) | wire); }
+  bytes(u8) {
+    this.varint(u8.length);
+    this.raw(u8);
+  }
+  string(s) { this.bytes(new TextEncoder().encode(s)); }
+  result() { return new Uint8Array(this.buf); }
+}
+
+function ipv6ToBytes(s) {
+  let head = [], tail = [];
+  if (s.includes('::')) {
+    const parts = s.split('::');
+    head = parts[0] ? parts[0].split(':') : [];
+    tail = parts[1] ? parts[1].split(':') : [];
+  } else {
+    head = s.split(':');
+  }
+  const groups = head.map((h) => parseInt(h || '0', 16));
+  const missing = 8 - groups.length - tail.length;
+  for (let i = 0; i < missing; i++) groups.push(0);
+  for (const t of tail) groups.push(parseInt(t || '0', 16));
+  const bytes = [];
+  for (const g of groups) bytes.push((g >> 8) & 0xff, g & 0xff);
+  return new Uint8Array(bytes);
+}
+
+function ipBytes(str) {
+  const s = str.includes('/') ? str.split('/')[0] : str;
+  const prefix = str.includes('/') ? parseInt(str.split('/')[1], 10) : (s.includes(':') ? 128 : 32);
+  if (s.includes(':')) return { ip: ipv6ToBytes(s), prefix };
+  return { ip: new Uint8Array(s.split('.').map(Number)), prefix };
+}
+
+function encodeDomain(domain) {
+  const w = new Writer();
+  const typeMap = { plain: 0, regex: 1, domain: 2, full: 3, regexp: 1 };
+  const type = typeMap[domain.type] || 0;
+  w.tag(1, 0); w.varint(type);       // field 1, varint
+  w.tag(2, 2); w.string(domain.value); // field 2, string
+  return w.result();
+}
+
+function encodeGeoSite(cat) {
+  const w = new Writer();
+  w.tag(1, 2); w.string(cat.code);   // country_code
+  for (const d of cat.domains) {
+    w.tag(2, 2); w.bytes(encodeDomain(d));
+  }
+  return w.result();
+}
+
+function encodeGeoSiteList(categories) {
+  const w = new Writer();
+  for (const cat of categories) {
+    w.tag(1, 2); w.bytes(encodeGeoSite(cat));
+  }
+  return w.result();
+}
+
+function encodeCidr(cidrStr) {
+  const w = new Writer();
+  const { ip, prefix } = ipBytes(cidrStr);
+  w.tag(1, 2); w.bytes(ip);       // ip
+  w.tag(2, 0); w.varint(prefix);   // prefix
+  return w.result();
+}
+
+function encodeGeoIP(entry) {
+  const w = new Writer();
+  w.tag(1, 2); w.string(entry.code);   // country_code
+  for (const c of entry.cidrs) {
+    w.tag(2, 2); w.bytes(encodeCidr(c));
+  }
+  return w.result();
+}
+
+function encodeGeoIPList(countries) {
+  const w = new Writer();
+  for (const c of countries) {
+    w.tag(1, 2); w.bytes(encodeGeoIP(c));
+  }
+  return w.result();
+}
+
+module.exports = { parseGeoSiteList, parseGeoIPList, encodeGeoSiteList, encodeGeoIPList };

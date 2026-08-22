@@ -3,7 +3,7 @@
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { parseGeoSiteList, parseGeoIPList } = require('./src/datparser');
+const { parseGeoSiteList, parseGeoIPList, encodeGeoSiteList, encodeGeoIPList } = require('./src/datparser');
 
 // In-memory stores so the renderer stays light; domains served lazily per category.
 let geositeStore = new Map();   // code -> [{type, value}]
@@ -116,6 +116,14 @@ ipcMain.handle('net:fetchText', async (_e, url) => {
   return await res.text();
 });
 
+// Encode custom categories (Geofiles tab) into a V2Ray .dat byte array.
+ipcMain.handle('dat:encode', async (_e, { kind, categories }) => {
+  const buf = kind === 'geoip'
+    ? encodeGeoIPList(categories)
+    : encodeGeoSiteList(categories);
+  return Array.from(buf);
+});
+
 ipcMain.handle('dialog:openFile', async (_e, opts) => {
   const r = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -148,6 +156,17 @@ ipcMain.handle('dialog:saveText', async (_e, { defaultName, content }) => {
   });
   if (r.canceled || !r.filePath) return false;
   fs.writeFileSync(r.filePath, content, 'utf-8');
+  return true;
+});
+
+// Save a binary .dat file (geosite/geoip) produced by the Geofiles tab.
+ipcMain.handle('dialog:saveDat', async (_e, { defaultName, buffer }) => {
+  const r = await dialog.showSaveDialog({
+    defaultPath: defaultName || 'geosite.dat',
+    filters: [{ name: 'V2Ray dat', extensions: ['dat'] }]
+  });
+  if (r.canceled || !r.filePath) return false;
+  fs.writeFileSync(r.filePath, Buffer.from(buffer));
   return true;
 });
 
