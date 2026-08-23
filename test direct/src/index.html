@@ -2,8 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
+  <!-- No <style> blocks and no style="" attributes exist in this app, so
+       'unsafe-inline' is unnecessary (element.style.* from JS is CSSOM and
+       stays allowed). base-uri/object-src/form-action close the remaining
+       injection routes a bare default-src leaves open. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+        content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';" />
   <title>Rule Flow Editor</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -281,6 +285,30 @@
         <div class="import-hint">Категории из .dat добавятся в «Мои категории».</div>
         <div class="modal-actions">
           <button class="btn ghost" id="gf-import-cancel">Отмена</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk-add a domain/CIDR list into the selected "my category" -->
+    <div class="modal-backdrop" id="gf-list-modal" hidden>
+      <div class="modal" data-liquid-glass>
+        <h3>Импорт списка в категорию <span class="count" id="gf-list-target"></span></h3>
+        <div class="modal-body">
+          <div class="conv-field">
+            <label>Вставьте список — по одной записи на строку</label>
+            <textarea id="gf-list-textarea" rows="12"
+                      placeholder="domain:pubgmobile.com&#10;full:pubg.com&#10;keyword:midasbuy&#10;regexp:^([a-zA-Z0-9-]+\.)*krafton\.com$&#10;&#10;Строку без префикса примем как domain."></textarea>
+          </div>
+          <div class="conv-field">
+            <label>Или из файла</label>
+            <button class="btn ghost" id="gf-list-file">Выбрать .txt файл…</button>
+          </div>
+          <div class="status" id="gf-list-status"></div>
+        </div>
+        <label class="replace-opt"><input type="checkbox" id="gf-list-replace" /> заменить содержимое категории</label>
+        <div class="modal-actions">
+          <button class="btn ghost" id="gf-list-cancel">Отмена</button>
+          <button class="btn primary" id="gf-list-apply">Добавить</button>
         </div>
       </div>
     </div>
