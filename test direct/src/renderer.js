@@ -57,6 +57,161 @@ const state = {
 let ruleSeq = 1;
 let draggingId = null;   // internal reorder
 
+/* ======================= Rule persistence ======================= */
+// Rules used to live only in memory: closing the window — or a crash — threw
+// away the whole session, and a replace-import that parsed to nothing was
+// unrecoverable. Saved debounced so bulk imports don't serialize per rule.
+const RULES_KEY = 'ruleflow-rules';
+const RULES_SAVE_MAX = 20000;   // beyond this, localStorage quota is the real limit
+let saveTimer = null;
+let saveDirty = false;          // a mutation happened since the last real save
+let restoring = false;          // suppress saves while loading the saved set
+
+// Session snapshot held in memory after boot. Nothing is restored into the UI
+// automatically: the user gets a timed "Восстановить сессию?" offer instead,
+// and declining wipes the stored data for a clean start.
+let pendingSession = null;
+
+function saveRulesNow() {
+  if (restoring) return;
+  try {
+    if (state.rules.length > RULES_SAVE_MAX) return;   // keep the last good snapshot
+    const gfGeosite = gfState.cats.geosite.map((c) => ({ code: c.code, items: c.items }));
+    const gfGeoip = gfState.cats.geoip.map((c) => ({ code: c.code, items: c.items }));
+    const hasGfCats = gfGeosite.length > 0 || gfGeoip.length > 0;
+    // An all-empty state is ambiguous: it's either "fresh app, nothing ever
+    // happened" (must NOT overwrite a stored session) or "the user deleted
+    // everything on purpose" (must overwrite, or the deleted rules resurrect
+    // via the restore banner). saveDirty marks the second case.
+    if (!state.rules.length && !hasGfCats && !state.importedJson) {
+      if (saveDirty) {
+        localStorage.removeItem(RULES_KEY);   // tombstone: deliberate empty
+        saveDirty = false;
+      }
+      return;
+    }
+    saveDirty = false;
+    localStorage.setItem(RULES_KEY, JSON.stringify({
+      v: 1,
+      section: state.currentSection,
+      rules: state.rules.map((r) => ({ t: r.type, v: r.value, s: r.section })),
+      importedJson: state.importedJson || null,
+      // Geofiles tab: user-built categories survive restarts via the restore
+      // offer. srcMeta/srcCache stay out — they're re-downloadable source data.
+      gf: {
+        mode: gfState.mode,
+        selected: gfState.selected,
+        geosite: gfGeosite,
+        geoip: gfGeoip
+      }
+    }));
+  } catch (_e) { /* quota or private mode — in-memory work continues */ }
+}
+
+function scheduleSave() {
+  if (restoring) return;
+  saveDirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveRulesNow, 400);
+}
+
+// Boot: read what the last session saved into pendingSession — do NOT touch
+// state/UI here. The restore banner decides whether it ever gets applied.
+function loadSavedRules() {
+  let data;
+  try {
+    const raw = localStorage.getItem(RULES_KEY);
+    if (!raw) return;
+    data = JSON.parse(raw);
+  } catch (_e) { return; }
+  if (!data || !Array.isArray(data.rules)) return;
+  const valid = new Set(['Direct', 'Proxy', 'Block']);
+  const rules = [];
+  for (const r of data.rules) {
+    if (!r || typeof r.t !== 'string' || typeof r.v !== 'string') continue;
+    const value = r.v.trim();
+    if (!value) continue;
+    rules.push({
+      type: r.t,
+      value,
+      section: valid.has(r.s) ? r.s : 'Direct'
+    });
+  }
+  // Nothing worth offering? Skip the banner and clear storage right away.
+  const hasGfCats = data.gf && (
+    (Array.isArray(data.gf.geosite) && data.gf.geosite.length) ||
+    (Array.isArray(data.gf.geoip) && data.gf.geoip.length)
+  );
+  if (!rules.length && !hasGfCats) {
+    try { localStorage.removeItem(RULES_KEY); } catch (_) {}
+    return;
+  }
+  pendingSession = {
+    rules,
+    section: valid.has(data.section) ? data.section : 'Direct',
+    importedJson: (data.importedJson && typeof data.importedJson === 'object')
+      ? data.importedJson : null,
+    gf: hasGfCats ? {
+      mode: data.gf.mode === 'geoip' ? 'geoip' : 'geosite',
+      selected: typeof data.gf.selected === 'string' ? data.gf.selected : null,
+      geosite: Array.isArray(data.gf.geosite) ? data.gf.geosite : [],
+      geoip: Array.isArray(data.gf.geoip) ? data.gf.geoip : []
+    } : null
+  };
+}
+
+// Apply pendingSession to the live UI. Called only from the banner button.
+function applyPendingSession() {
+  if (!pendingSession) return false;
+  restoring = true;
+  try {
+    state.rules = [];
+    state.addedKeys.clear();
+    rulesList.innerHTML = '';
+    ruleSeq = 1;
+    for (const p of pendingSession.rules) {
+      state.rules.push({ id: ruleSeq++, type: p.type, value: p.value, section: p.section });
+    }
+    state.currentSection = pendingSession.section;
+    // The markup's active tab is whatever was hard-coded; sync it to the
+    // restored section so the highlight matches the rules on screen.
+    document.querySelectorAll('#view-editor .section-tab').forEach((t) => {
+      t.classList.toggle('active', t.dataset.section === state.currentSection);
+    });
+    state.importedJson = pendingSession.importedJson;
+
+    if (pendingSession.gf) {
+      gfState.mode = pendingSession.gf.mode;
+      gfState.cats.geosite = pendingSession.gf.geosite.filter(
+        (c) => c && typeof c.code === 'string' && Array.isArray(c.items));
+      gfState.cats.geoip = pendingSession.gf.geoip.filter(
+        (c) => c && typeof c.code === 'string' && Array.isArray(c.items));
+      gfState.selected = pendingSession.gf.selected;
+      document.querySelectorAll('.gf-subtab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.gf === gfState.mode);
+      });
+      gfRenderTree();
+      gfRenderCatList();
+      gfRenderCatContent();
+    }
+  } finally {
+    restoring = false;
+  }
+  refreshAddedKeys();
+  renderRulesList();
+  updateRulesCount();
+  syncMarks();
+  scheduleSave();
+  return true;
+}
+
+// User ignored / dismissed the offer: wipe stored data so the next launch
+// starts clean instead of re-offering a stale session forever.
+function discardPendingSession() {
+  pendingSession = null;
+  try { localStorage.removeItem(RULES_KEY); } catch (_) {}
+}
+
 /* ============================ Helpers ============================ */
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, txt) => {
@@ -66,15 +221,33 @@ const el = (tag, cls, txt) => {
   return e;
 };
 
+// Identity of a rule *within one section*. The UI marks tiles per the section
+// being edited, so a section-less key would make geosite:CN in Direct and in
+// Proxy collide: adding one would report "already exists", and toggling the
+// tile in Direct would delete the Proxy rule instead.
 function ruleKey(type, value) {
   return type + ':' + String(value).trim().toLowerCase();
+}
+function sectionKey(section, type, value) {
+  return section + '|' + ruleKey(type, value);
 }
 function formatRule(r) {
   return r.type === 'plain' ? r.value : r.type + ':' + r.value;
 }
+// Section headers in exported .txt — a comment to anything that doesn't know
+// about them, a section switch to us.
+const SECTION_HEADER_PREFIX = '# [';
+const SECTION_HEADER_RE = /^#\s*\[(Direct|Proxy|Block)\]\s*$/i;
+const SECTION_NAMES = { direct: 'Direct', proxy: 'Proxy', block: 'Block' };
+
 function parseLine(line) {
   const t = line.trim();
-  if (!t || t.startsWith('#')) return null;
+  if (!t) return null;
+  if (t.startsWith('#')) {
+    const h = SECTION_HEADER_RE.exec(t);
+    // Signals a switch rather than a rule; the caller applies it to what follows.
+    return h ? { header: SECTION_NAMES[h[1].toLowerCase()] } : null;
+  }
   const m = /^(domain|geosite|geoip|regexp|keyword):(.+)$/i.exec(t);
   if (m) return { type: m[1].toLowerCase(), value: m[2].trim() };
   return { type: 'plain', value: t };
@@ -92,7 +265,9 @@ function parseJsonImport(obj) {
     if (!Array.isArray(arr)) continue;
     for (const entry of arr) {
       const p = parseLine(String(entry));
-      if (p && p.value.trim()) {
+      // Each JSON array already carries its section, so a stray `# [...]`
+      // header line inside one is meaningless here — and has no .value.
+      if (p && !p.header && p.value.trim()) {
         p.section = section;
         result.push(p);
       }
@@ -614,8 +789,22 @@ async function copyRoutingJson(scheme, label) {
 /* ============================ Rules column ============================ */
 const rulesList = $('#rules-list');
 
+// Marks reflect the section on screen, so this set holds the current section's
+// keys only. Tiles compare against a plain ruleKey (dataset.key), which keeps
+// syncMarks() unchanged while Direct/Proxy/Block stay independent.
 function refreshAddedKeys() {
-  state.addedKeys = new Set(state.rules.map((r) => ruleKey(r.type, r.value)));
+  state.addedKeys = new Set(
+    state.rules
+      .filter((r) => r.section === state.currentSection)
+      .map((r) => ruleKey(r.type, r.value))
+  );
+}
+
+// Does `value` already exist in `section`? Used instead of addedKeys whenever
+// the target section may differ from the one being displayed.
+function hasRuleIn(section, type, value) {
+  const k = ruleKey(type, value);
+  return state.rules.some((r) => r.section === section && ruleKey(r.type, r.value) === k);
 }
 
 function syncMarks() {
@@ -657,9 +846,11 @@ function updateRulesCount() {
 function addRule(type, value, opts = {}) {
   value = String(value).trim();
   if (!value) return null;
+  const section = opts.section || state.currentSection;
   const key = ruleKey(type, value);
-  if (state.addedKeys.has(key)) {
-    // already exists — flash it
+  // Duplicate only when the same value already sits in the SAME section.
+  if (hasRuleIn(section, type, value)) {
+    // already exists — flash it (only visible when it's the displayed section)
     const existing = [...rulesList.children].find((c) => c._key === key);
     if (existing) {
       existing.classList.remove('flash');
@@ -670,9 +861,9 @@ function addRule(type, value, opts = {}) {
     if (!opts.silent) toast('Правило уже есть', 'err');
     return null;
   }
-  const rule = { id: ruleSeq++, type, value, section: opts.section || state.currentSection };
+  const rule = { id: ruleSeq++, type, value, section };
   state.rules.push(rule);
-  state.addedKeys.add(key);
+  if (section === state.currentSection) state.addedKeys.add(key);
   if (rule.section === state.currentSection) {
     const node = createRuleEl(rule);
     rulesList.appendChild(node);
@@ -680,11 +871,15 @@ function addRule(type, value, opts = {}) {
   }
   updateRulesCount();
   if (!opts.batch) syncMarks();
-  if (type === 'geosite') dedupeGeosite(value);
+  scheduleSave();
+  if (type === 'geosite') dedupeGeosite(value, section);
   return rule;
 }
 
-async function dedupeGeosite(catCode) {
+// Adding geosite:CN makes individual domain rules it already covers redundant —
+// but only inside the SAME section: a domain routed via Proxy is not made
+// redundant by a Direct geosite rule.
+async function dedupeGeosite(catCode, section = state.currentSection) {
   let domains = state.geositeCache[catCode];
   if (!domains) {
     try {
@@ -697,7 +892,9 @@ async function dedupeGeosite(catCode) {
       .filter((d) => d.type !== 'regex')
       .map((d) => String(d.value).trim().toLowerCase())
   );
-  const dupes = state.rules.filter((r) => r.type === 'domain' && vals.has(r.value.trim().toLowerCase()));
+  const dupes = state.rules.filter(
+    (r) => r.section === section && r.type === 'domain' && vals.has(r.value.trim().toLowerCase())
+  );
   if (!dupes.length) return;
   dupes.forEach((r) => removeRule(r.id));
   toast('Удалено дублей под geosite:' + catCode + ': ' + dupes.length, 'ok');
@@ -708,7 +905,11 @@ function removeRule(id) {
   if (idx < 0) return;
   const rule = state.rules[idx];
   state.rules.splice(idx, 1);
-  state.addedKeys.delete(ruleKey(rule.type, rule.value));
+  // Only drop the mark when no rule with that key remains in the shown section.
+  if (rule.section === state.currentSection
+      && !hasRuleIn(state.currentSection, rule.type, rule.value)) {
+    state.addedKeys.delete(ruleKey(rule.type, rule.value));
+  }
   const node = [...rulesList.children].find((c) => c._id === id);
   if (node) {
     node.classList.add('removing');
@@ -716,6 +917,7 @@ function removeRule(id) {
   }
   updateRulesCount();
   setTimeout(syncMarks, 0);
+  scheduleSave();
 }
 
 function renderRulesList() {
@@ -727,6 +929,16 @@ function renderRulesList() {
       const el = createRuleEl(r);
       if (r.type === 'geosite' && missing.has(r.value)) el.classList.add('missing-cat');
       el.classList.add('new-batch');
+      // Cross-section badges: show which OTHER sections hold the same value,
+      // so no tab-switching is needed to see the full picture.
+      const others = state.rules.filter(
+        (x) => x.id !== r.id && x.section !== r.section
+          && ruleKey(x.type, x.value) === ruleKey(r.type, r.value)
+      );
+      for (const o of others) {
+        el.classList.add('also-' + o.section.toLowerCase());
+        el.appendChild(makeCrossBadge(o));
+      }
       frag.appendChild(el);
     }
   }
@@ -734,6 +946,20 @@ function renderRulesList() {
   requestAnimationFrame(() => {
     document.querySelectorAll('.rule.new-batch').forEach((n) => n.classList.remove('new-batch'));
   });
+}
+
+// Small colored chip on a rule row: "this value also exists in <section>".
+// Clicking it removes that other-section copy right from here.
+function makeCrossBadge(targetRule) {
+  const section = targetRule.section;
+  const b = el('button', 'cross-badge badge-' + section.toLowerCase(), section);
+  b.title = 'Также есть в ' + section + ' — нажмите, чтобы удалить оттуда';
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeRule(targetRule.id);
+    toast('Удалено из ' + section, 'ok');
+  });
+  return b;
 }
 
 function createRuleEl(rule) {
@@ -800,6 +1026,7 @@ function reorderRule(fromId, toId, after) {
   const section = state.currentSection;
   const nodes = new Map([...rulesList.children].map((c) => [c._id, c]));
   arr.filter((r) => r.section === section).forEach((r) => rulesList.appendChild(nodes.get(r.id)));
+  scheduleSave();   // order is part of the document
 }
 
 function startEdit(li, rule, val) {
@@ -813,11 +1040,18 @@ function startEdit(li, rule, val) {
   const commit = (save) => {
     const nv = input.value.trim();
     if (save && nv && nv !== rule.value) {
-      state.addedKeys.delete(ruleKey(rule.type, rule.value));
-      rule.value = nv;
-      li._key = ruleKey(rule.type, rule.value);
-      refreshAddedKeys();
-      syncMarks();
+      // Renaming onto a value that already exists in this section would leave
+      // two rules sharing one key and desync addedKeys for good — refuse it and
+      // keep the original value.
+      if (hasRuleIn(rule.section, rule.type, nv)) {
+        toast('Правило ' + rule.type + ':' + nv + ' уже есть в этой секции', 'err');
+      } else {
+        rule.value = nv;
+        li._key = ruleKey(rule.type, rule.value);
+        refreshAddedKeys();
+        syncMarks();
+        scheduleSave();
+      }
     }
     const newVal = el('span', 'val', rule.value);
     newVal.title = formatRule(rule);
@@ -872,7 +1106,24 @@ function quickAdd() {
 /* export */
 $('#btn-export').addEventListener('click', async () => {
   if (!state.rules.length) return toast('Нечего экспортировать', 'err');
-  const content = state.rules.map(formatRule).join('\n') + '\n';
+  // Group under section headers so the file round-trips. The headers are `#`
+  // comments: older importers (and other tools) skip them as before, while our
+  // parseLine picks them up and restores each rule to its own section.
+  const order = ['Direct', 'Proxy', 'Block'];
+  const sections = new Map(order.map((s) => [s, []]));
+  for (const r of state.rules) {
+    const s = sections.has(r.section) ? r.section : 'Direct';
+    sections.get(s).push(formatRule(r));
+  }
+  const lines = [];
+  for (const s of order) {
+    const items = sections.get(s);
+    if (!items.length) continue;
+    if (lines.length) lines.push('');
+    lines.push(SECTION_HEADER_PREFIX + s + ']');
+    lines.push(...items);
+  }
+  const content = lines.join('\n') + '\n';
   try {
     const ok = await window.api.saveText({ defaultName: 'rules.txt', content });
     if (ok) toast('Экспортировано в файл', 'ok');
@@ -1013,10 +1264,18 @@ async function importRules(toAdd) {
         });
       });
     }
+    refreshAddedKeys();   // rules may have landed in the displayed section
     syncMarks();
     updateRulesCount();
     renderConvSrcList();
     updateConvTabCounts();
+    saveRulesNow();   // bulk import: persist immediately, don't wait out the debounce
+    // Don't dress up a no-op as success: 0 recognized rules is a failure the
+    // user needs to see, especially right after a replace wiped the list.
+    if (n === 0) {
+      toast('Не распознано ни одного правила', 'err', 5000);
+      return false;
+    }
     toast(`Импортировано: ${n}`, 'ok');
     return true;
   } catch (err) {
@@ -1030,15 +1289,27 @@ async function applyJsonImport(jsonObj) {
   if (jsonObj.Geositeurl) $('#conv-src-geosite').value = jsonObj.Geositeurl;
   if (jsonObj.Geoipurl) $('#conv-src-geoip').value = jsonObj.Geoipurl;
   const seen = new Set();
+  // Section-aware: parseJsonImport tags each rule with its target section, so
+  // the same value may legitimately land in Direct and Proxy both.
   const toAdd = parseJsonImport(jsonObj).filter((p) => {
-    const key = ruleKey(p.type, p.value);
-    if (state.addedKeys.has(key) || seen.has(key)) return false;
+    const section = p.section || state.currentSection;
+    const key = sectionKey(section, p.type, p.value);
+    if (seen.has(key) || hasRuleIn(section, p.type, p.value)) return false;
     seen.add(key);
-    state.addedKeys.add(key);
     return true;
   });
   if (!toAdd.length) { toast('Не найдено правил в Direct секциях JSON', 'err'); return false; }
   return importRules(toAdd);
+}
+
+// Wipe the list only once we know the incoming data is usable. Clearing first
+// meant a link/text that parsed to nothing left the user with an empty editor
+// and no way back.
+function clearAllRules() {
+  state.rules = [];
+  state.addedKeys.clear();
+  rulesList.innerHTML = '';
+  scheduleSave();
 }
 
 $('#import-apply').addEventListener('click', async () => {
@@ -1058,40 +1329,57 @@ $('#import-apply').addEventListener('click', async () => {
     if (!jsonObj || typeof jsonObj !== 'object' || Array.isArray(jsonObj)) {
       return toast('Не удалось распознать ссылку: не JSON-объект', 'err');
     }
-    if (replace) {
-      state.rules = [];
-      state.addedKeys.clear();
-      rulesList.innerHTML = '';
+    // Parsed and non-empty before anything is discarded.
+    if (!parseJsonImport(jsonObj).length) {
+      return toast('В ссылке не найдено правил — ничего не изменено', 'err', 5000);
     }
+    if (replace) clearAllRules();
     const ok = await applyJsonImport(jsonObj);
     if (ok) importModal.hidden = true;
     return;
   }
 
   const text = $('#import-textarea').value;
-  if (replace) {
-    state.rules = [];
-    state.addedKeys.clear();
-    rulesList.innerHTML = '';
-  }
   const jsonObj = tryParseJson(text);
   if (jsonObj && typeof jsonObj === 'object' && !Array.isArray(jsonObj)) {
+    if (!parseJsonImport(jsonObj).length) {
+      return toast('В JSON не найдено правил — ничего не изменено', 'err', 5000);
+    }
+    if (replace) clearAllRules();
     const ok = await applyJsonImport(jsonObj);
     if (ok) importModal.hidden = true;
     return;
   }
-  const toAdd = [];
-  const lines = text.split(/\r?\n/);
-  lines.forEach((line) => {
+
+  // Parse the whole text first; only a non-empty result justifies a replace.
+  // `# [Direct]`-style headers written by our own export switch the section for
+  // everything that follows, so a file exported here comes back intact.
+  const parsed = [];
+  let target = state.currentSection;
+  text.split(/\r?\n/).forEach((line) => {
     const p = parseLine(line);
-    if (p && p.value.trim()) {
-      const key = ruleKey(p.type, p.value);
-      if (!state.addedKeys.has(key)) {
-        state.addedKeys.add(key);
-        toAdd.push(p);
-      }
-    }
+    if (!p) return;
+    if (p.header) { target = p.header; return; }
+    if (!p.value.trim()) return;
+    p.section = target;
+    parsed.push(p);
   });
+  if (!parsed.length) {
+    return toast('Не распознано ни одного правила — ничего не изменено', 'err', 5000);
+  }
+  if (replace) clearAllRules();
+  // Deduplicate against what's actually in the target section now.
+  const seen = new Set();
+  const toAdd = parsed.filter((p) => {
+    const section = p.section || state.currentSection;
+    const k = sectionKey(section, p.type, p.value);
+    if (seen.has(k) || hasRuleIn(section, p.type, p.value)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (!toAdd.length) {
+    return toast('Все правила уже есть в списке', 'err', 4000);
+  }
   const ok = await importRules(toAdd);
   if (ok) importModal.hidden = true;
 });
@@ -1222,8 +1510,11 @@ function createCatEl(cat, search) {
   addBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (state.addedKeys.has(catKey)) {
-      // toggle off
-      const r = state.rules.find((x) => ruleKey(x.type, x.value) === catKey);
+      // toggle off — scoped to the section on screen, so this can't reach into
+      // another section's identically-named rule
+      const r = state.rules.find(
+        (x) => x.section === state.currentSection && ruleKey(x.type, x.value) === catKey
+      );
       if (r) { removeRule(r.id); toast('Удалено geosite:' + cat.code); }
     } else if (addRule('geosite', cat.code, { flash: true })) {
       syncMarks();
@@ -1335,8 +1626,19 @@ function createDomEl(code, d, index, body, countEl) {
   row.dataset.key = key;
   row.draggable = true;
 
-  const circle = el('div', 'circle', state.addedKeys.has(key) ? '✓' : '+');
-  if (state.addedKeys.has(key)) { circle.classList.add('on'); row.classList.add('added'); }
+  // Green means "already in the SELECTED category of MY categories" when this
+  // row is rendered inside the Geofiles tab; in the Editor tab it still means
+  // "already among the editor rules" (state.addedKeys).
+  const gfCat = gfState && gfState.cats
+    ? gfState.cats[gfState.mode].find((c) => c.code === code)
+    : null;
+  const gfAdded = gfCat
+    ? gfCat.items.some((it) => String(it.value != null ? it.value : it).toLowerCase()
+      === String(d.value).toLowerCase())
+    : state.addedKeys.has(key);
+
+  const circle = el('div', 'circle', gfAdded ? '✓' : '+');
+  if (gfAdded) { circle.classList.add('on'); row.classList.add('added'); }
   const dtype = el('span', 'dtype', d.type);
   const val = el('span', 'val', d.value);
   val.title = d.value;
@@ -1449,8 +1751,10 @@ function createTileEl(c) {
       syncMarks();
       toast('Добавлено geoip:' + c.code, 'ok');
     } else {
-      // toggle off if already present
-      const r = state.rules.find((x) => ruleKey(x.type, x.value) === key);
+      // toggle off if already present — scoped to the displayed section
+      const r = state.rules.find(
+        (x) => x.section === state.currentSection && ruleKey(x.type, x.value) === key
+      );
       if (r) { removeRule(r.id); toast('Удалено geoip:' + c.code); }
     }
   });
@@ -1472,6 +1776,7 @@ document.querySelectorAll('#view-editor .section-tab').forEach((tab) => {
     document.querySelectorAll('#view-editor .section-tab').forEach((t) => t.classList.remove('active'));
     tab.classList.add('active');
     state.currentSection = tab.dataset.section;
+    refreshAddedKeys();   // marks track the section now on screen
     renderRulesList();
     updateRulesCount();
     syncMarks();
@@ -1479,7 +1784,67 @@ document.querySelectorAll('#view-editor .section-tab').forEach((tab) => {
 });
 
 /* ============================ Init ============================ */
+// The previous session is NOT restored automatically: it's held in
+// pendingSession and offered via a banner (no timer). «Восстановить» applies
+// it; the little × declines and wipes the stored snapshot — a fresh start,
+// matching the old behavior.
+loadSavedRules();
+refreshAddedKeys();
+renderRulesList();
 updateRulesCount();
+syncMarks();
+
+// Debounced saves can still be pending when the window goes away. Pass a
+// marker so beforeunload can flush honestly without arming saveDirty: closing
+// an untouched app is NOT a mutation and must not tombstone the stored session.
+window.addEventListener('beforeunload', (e) => { if (saveDirty) saveRulesNow(); });
+
+// ---- "Восстановить сессию?" offer ----
+// Stays up until answered: «Восстановить» applies the snapshot, the little ×
+// in the corner declines and wipes the stored data. No timer.
+function showSessionOffer() {
+  if (!pendingSession) return;
+  const n = pendingSession.rules.length;
+  const gfCats = pendingSession.gf
+    ? pendingSession.gf.geosite.length + pendingSession.gf.geoip.length : 0;
+  const parts = [];
+  if (n) parts.push(n + ' ' + pluralRu(n, 'правило', 'правила', 'правил'));
+  if (gfCats) parts.push(gfCats + ' ' + pluralRu(gfCats, 'категория', 'категории', 'категорий'));
+  if (!parts.length) return;
+
+  const bar = el('div', 'session-offer');
+  const msg = el('span', 'so-msg', 'Восстановить сессию? (' + parts.join(', ') + ')');
+  const btn = el('button', 'btn primary', 'Восстановить');
+  const closeBtn = el('button', 'so-close', '×');
+  closeBtn.title = 'Не восстанавливать и очистить';
+  closeBtn.setAttribute('aria-label', 'Закрыть');
+  bar.append(msg, btn, closeBtn);
+  document.body.appendChild(bar);
+
+  const close = () => {
+    bar.classList.add('leaving');
+    setTimeout(() => bar.remove(), 250);
+  };
+  btn.addEventListener('click', () => {
+    applyPendingSession();
+    toast('Сессия восстановлена', 'ok');
+    close();
+  });
+  // ×: declined — stored data goes away for a clean start next launch.
+  closeBtn.addEventListener('click', () => {
+    discardPendingSession();
+    close();
+  });
+}
+
+// Russian plural: 1 правило / 2 правила / 5 правил.
+function pluralRu(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+showSessionOffer();
 
 /* ============================ Geofiles ============================ */
 // Fully standalone tab — its own state, not shared with Editor/Converter.
@@ -1624,6 +1989,7 @@ function gfSrcTileEl(c) {
     gfContentOpen = true;
     gfRenderCatList();
     gfRenderCatContent();
+    scheduleSave();
     toast('geoip:' + c.code + ': добавлено ' + n, 'ok');
   });
   return tile;
@@ -1713,6 +2079,7 @@ function gfAddAllBtn(code) {
     // Clear filters so the newly added category and its items are always visible.
     $('#gf-cat-filter').value = '';
     $('#gf-cat-search').value = '';
+    scheduleSave();
     gfRenderCatList();
     gfRenderCatContent();
     gfSyncSrcMarks();
@@ -1773,19 +2140,46 @@ async function gfSyncSrcAll() {
   const isGeo = gfState.mode === 'geosite';
   const cats = gfState.cats[gfState.mode];
   const srcCats = document.querySelectorAll('#gf-src-tree .gf-src-cat');
+  if (!srcCats.length) return;
+
+  // Collect the visible codes first, then ask main once. The old loop awaited
+  // one IPC round-trip per category and pulled every domain list across the
+  // bridge just to compare them — re-running on every item added.
+  const wraps = [];
   for (const wrap of srcCats) {
     const nameEl = wrap.querySelector('.gf-src-cat-name');
     const addAll = wrap.querySelector('.gf-src-add-all');
     if (!nameEl || !addAll) continue;
-    const code = nameEl.textContent.trim();
-    const items = await gfLoadItems(code);
-    if (!items.length) continue;
-    // Compare against the "my category" with the same code (e.g. ROBLOX -> ROBLOX),
-    // falling back to the currently selected category if no same-named one exists.
-    let match = cats.find((c) => c.code === code);
-    if (!match) match = cats.find((c) => c.code === gfState.selected);
-    const matchSet = new Set((match ? match.items : []).map((it) => String(isGeo ? it.value : it).toLowerCase()));
-    const all = items.every((it) => matchSet.has(String(isGeo ? it.value : it).toLowerCase()));
+    wraps.push({ wrap, addAll, code: nameEl.textContent.trim() });
+  }
+  if (!wraps.length) return;
+
+  // Same target as before: the same-named "my category", else the selected one.
+  const codes = wraps.map((w) => w.code);
+  const named = new Map(cats.map((c) => [c.code, c]));
+  const selected = cats.find((c) => c.code === gfState.selected);
+  // Group codes by the category they're compared against, so each distinct
+  // "have" set costs one call rather than one call per code.
+  const groups = new Map();
+  for (const code of codes) {
+    const match = named.get(code) || selected || null;
+    const items = match ? match.items : [];
+    if (!groups.has(match)) groups.set(match, { items, codes: [] });
+    groups.get(match).codes.push(code);
+  }
+
+  const covered = {};
+  for (const [, g] of groups) {
+    const have = g.items.map((it) => String(isGeo ? it.value : it));
+    try {
+      Object.assign(covered, await window.api.geoCoveredBy({
+        kind: gfState.mode, codes: g.codes, have
+      }));
+    } catch (_) { /* leave those codes unmarked */ }
+  }
+
+  for (const { wrap, addAll, code } of wraps) {
+    const all = covered[code] === true;
     wrap.classList.toggle('cat-done', all);
     addAll.textContent = all ? '✓ все' : '＋ все';
     addAll.title = all ? 'Вся категория уже в «Моих категориях»' : 'Перенести всю категорию в «Мои категории»';
@@ -1813,20 +2207,19 @@ function gfFillSrcBody(body, items) {
   body.innerHTML = '';
   const inner = el('div', 'gf-src-inner');
   const isGeo = gfState.mode === 'geosite';
-  // Build a set of already-added keys for the currently selected category.
+  // A domain is "already mine" when it exists in ANY of my categories, not
+  // just the selected one — during a content search the user usually has no
+  // category selected and would otherwise see everything as un-added.
   const addedKeys = new Set();
-  if (gfState.selected) {
-    const cat = gfState.cats[gfState.mode].find((c) => c.code === gfState.selected);
-    if (cat) {
-      for (const it of cat.items) {
-        addedKeys.add(String(isGeo ? it.value : it).toLowerCase());
-      }
+  for (const cat of gfState.cats[gfState.mode]) {
+    for (const it of cat.items) {
+      addedKeys.add(String(isGeo ? it.value : it).toLowerCase());
     }
   }
   for (const item of items) {
     const row = el('div', 'gf-src-item');
     const label = isGeo ? item.value : item;
-    const key = String(isGeo ? item.value : item).toLowerCase();
+    const key = String(isGeo ? it_value(item, isGeo) : item).toLowerCase();
     const isAdded = addedKeys.has(key);
     if (isAdded) row.classList.add('added');
     // Editor-style circle with +/✓
@@ -1849,6 +2242,137 @@ function gfFillSrcBody(body, items) {
   body.appendChild(inner);
 }
 
+// geosite items are objects ({type,value}), geoip ones are plain CIDR strings.
+function it_value(item, isGeo) { return isGeo ? item.value : item; }
+
+// ---- Bulk list import into the selected "my category" ----
+// Adding domains one at a time is painful for a ready-made list, so accept the
+// same `type:value` syntax the .dat files use, pasted or read from a .txt.
+
+// Types the encoder understands (see gfTagType / datparser).
+const GF_TYPES = new Set(['domain', 'full', 'keyword', 'regexp', 'regex', 'plain']);
+
+// Returns { items, skipped } — items shaped for gfState (geosite: {type,value}, geoip: string).
+function gfParseList(text, isGeo) {
+  const items = [];
+  let skipped = 0;
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    if (!isGeo) {
+      // geoip categories hold CIDRs / bare IPs.
+      const v = line.replace(/^(?:ip|ip-cidr|cidr)\s*[:,]\s*/i, '').trim();
+      if (/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(v)) items.push(v);
+      else skipped++;
+      continue;
+    }
+    const m = /^([a-z-]+)\s*:\s*(.+)$/i.exec(line);
+    if (m && GF_TYPES.has(m[1].toLowerCase())) {
+      let type = m[1].toLowerCase();
+      if (type === 'regexp') type = 'regex';   // internal name, cf. gf-qa-add
+      items.push({ type, value: m[2].trim() });
+    } else if (m && /^(geosite|geoip|ext)$/i.test(m[1])) {
+      skipped++;   // references to other lists can't be inlined here
+    } else {
+      // No recognized prefix: treat as a plain domain, like the editor does.
+      items.push({ type: 'domain', value: line });
+    }
+  }
+  return { items, skipped };
+}
+
+const gfListModal = $('#gf-list-modal');
+let gfListTargetCode = null;
+
+function gfOpenListModal(code) {
+  gfListTargetCode = code;
+  $('#gf-list-target').textContent = code;
+  $('#gf-list-textarea').value = '';
+  $('#gf-list-replace').checked = false;
+  const st = $('#gf-list-status');
+  st.className = 'status';
+  st.textContent = '';
+  gfListModal.hidden = false;
+  $('#gf-list-textarea').focus();
+}
+
+function gfCloseListModal() {
+  gfListModal.hidden = true;
+  gfListTargetCode = null;
+}
+
+// Applies parsed items to the target category in one pass: dedupe against what
+// is already there, then a single re-render and a single toast — gfAddItem would
+// fire a toast, a re-render and a mark-sync per entry.
+function gfApplyList(text) {
+  const isGeo = gfState.mode === 'geosite';
+  const cat = gfState.cats[gfState.mode].find((c) => c.code === gfListTargetCode);
+  if (!cat) { toast('Категория не найдена', 'err'); return; }
+
+  const { items, skipped } = gfParseList(text, isGeo);
+  if (!items.length) {
+    const st = $('#gf-list-status');
+    st.className = 'status error';
+    st.textContent = skipped
+      ? `Не распознано ни одной записи (пропущено ${skipped}) — ничего не изменено`
+      : 'Не распознано ни одной записи — ничего не изменено';
+    return;
+  }
+
+  const replace = $('#gf-list-replace').checked;
+  if (replace) cat.items = [];
+  // Key on type+value: `domain:pubg.com` and `full:pubg.com` are different
+  // rules (subdomains vs exact match), so value alone would silently drop one.
+  const keyOf = (it) => (isGeo
+    ? gfTagType(it.type, true) + '\u0000' + String(it.value).toLowerCase()
+    : String(it).toLowerCase());
+  const seen = new Set(cat.items.map(keyOf));
+  let added = 0;
+  let dupes = 0;
+  for (const it of items) {
+    const k = keyOf(it);
+    if (seen.has(k)) { dupes++; continue; }
+    seen.add(k);
+    cat.items.push(it);
+    added++;
+  }
+
+  gfContentOpen = true;
+  $('#gf-cat-search').value = '';
+  scheduleSave();
+  gfRenderCatContent();
+  gfRenderCatList();
+  gfSyncSrcMarks();
+  gfCloseListModal();
+
+  const parts = [`Добавлено: ${added}`];
+  if (dupes) parts.push(`дубликатов: ${dupes}`);
+  if (skipped) parts.push(`пропущено: ${skipped}`);
+  toast(parts.join(', '), added ? 'ok' : 'err', 4500);
+}
+
+$('#gf-list-apply').addEventListener('click', () => {
+  gfApplyList($('#gf-list-textarea').value);
+});
+$('#gf-list-cancel').addEventListener('click', gfCloseListModal);
+gfListModal.addEventListener('click', (e) => { if (e.target === gfListModal) gfCloseListModal(); });
+
+$('#gf-list-file').addEventListener('click', async () => {
+  try {
+    const text = await window.api.openText();   // main-side dialog, txt/json/conf/list
+    if (text == null) return;
+    // Show what was read so the user can eyeball it before applying.
+    $('#gf-list-textarea').value = text;
+    const st = $('#gf-list-status');
+    st.className = 'status ok';
+    st.textContent = 'Файл загружен — проверьте и нажмите «Добавить»';
+  } catch (err) {
+    const st = $('#gf-list-status');
+    st.className = 'status error';
+    st.textContent = 'Ошибка чтения файла: ' + err.message;
+  }
+});
+
 function gfAddItem(itemOrCidr) {
   // Auto-select the first category if none is chosen yet.
   if (!gfState.selected) {
@@ -1863,6 +2387,7 @@ function gfAddItem(itemOrCidr) {
   const exists = cat.items.some((it) => (isGeo ? String(it.value) : String(it)).toLowerCase() === key);
   if (exists) return toast('Уже есть', 'err');
   cat.items.push(itemOrCidr);
+  scheduleSave();
   gfContentOpen = true; // show the result right away
   // Clear the item search so the added item is visible.
   $('#gf-cat-search').value = '';
@@ -1903,6 +2428,7 @@ function gfRenderCatList() {
       const idx = all.findIndex((x) => x.code === c.code);
       if (idx >= 0) all.splice(idx, 1);
       if (gfState.selected === c.code) { gfState.selected = null; gfRenderCatContent(); }
+      scheduleSave();
       gfRenderCatList();
       gfUpdateCount();
     });
@@ -1970,7 +2496,7 @@ function gfRenderCatContent() {
       if (nv && nv.toUpperCase() !== cat.code) {
         const cats = gfState.cats[gfState.mode];
         const dup = cats.some((c) => c.code === nv.toUpperCase());
-        if (!dup) { cat.code = nv.toUpperCase(); gfState.selected = cat.code; }
+        if (!dup) { cat.code = nv.toUpperCase(); gfState.selected = cat.code; scheduleSave(); }
         else toast('Такая категория уже есть', 'err');
       }
       gfRenderCatList();
@@ -1982,7 +2508,13 @@ function gfRenderCatContent() {
       else if (e.key === 'Escape') { gfRenderCatList(); gfRenderCatContent(); }
     });
   });
-  head.append(chev, title, cnt, renameBtn);
+  const importBtn = el('button', 'btn ghost', '⤓');
+  importBtn.title = 'Импорт списка в эту категорию (текст или .txt файл)';
+  importBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    gfOpenListModal(cat.code);
+  });
+  head.append(chev, title, cnt, importBtn, renameBtn);
   head.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
     gfContentOpen = !gfContentOpen;
@@ -2001,6 +2533,7 @@ function gfRenderCatContent() {
       const delBtn = el('button', 'gf-item-del', '✕');
       delBtn.addEventListener('click', () => {
         cat.items.splice(cat.items.indexOf(item), 1);
+        scheduleSave();
         gfRenderCatContent();
         gfRenderCatList();
       });
@@ -2074,6 +2607,7 @@ $('#gf-new-cat').addEventListener('click', () => {
         gfContentOpen = true;
         gfRenderCatList();
         gfRenderCatContent();
+        scheduleSave();
       }
     }
     row.remove();
@@ -2142,6 +2676,7 @@ async function gfImportDat(payload, source) {
     gfState.selected = cats.length ? cats[0].code : null;
     gfContentOpen = false;
     gfState.srcCache = {}; // the .dat store changed — invalidate cached domains
+    scheduleSave();
     gfRenderCatList();
     gfRenderCatContent();
     gfSyncSrcMarks();
@@ -2189,7 +2724,9 @@ async function installUpdate(info) {
     // by CSP (default-src 'self' on a file:// page) and by CORS on GitHub's
     // release-asset host. Progress arrives via onUpdateProgress; on success
     // main writes the exe, quits, and a swap script replaces it.
-    await window.api.updateInstall({ url: info.url, size: info.size });
+    // Only the version is sent — main resolves the asset URL from the release
+    // it verified itself, so the URL never round-trips through the renderer.
+    await window.api.updateInstall({ version: info.version });
   } catch (err) {
     btn.disabled = false;
     $('#update-progress').hidden = true;
