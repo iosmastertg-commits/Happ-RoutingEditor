@@ -1061,6 +1061,40 @@ input[type="text"]:focus, textarea:focus, select:focus {
   border-color: rgba(242, 85, 85, 0.8);
   box-shadow: inset 0 0 0 1px rgba(242, 85, 85, 0.35);
 }
+
+/* ---------- Cross-section badges ---------- */
+/* A rule shown in one section may also exist in another. The chip says which
+   (blue = Proxy copy exists, red = Block copy exists); clicking it deletes
+   that other copy without leaving the current tab. */
+.cross-badge {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.cross-badge:hover { opacity: 1; transform: translateY(-1px); }
+.cross-badge.badge-proxy {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.cross-badge.badge-block {
+  color: var(--red);
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+/* Outline of the row itself: the same value exists in another section. */
+.rule.also-proxy { border-color: var(--accent); }
+.rule.also-block { border-color: var(--red); }
+.rule.also-proxy.also-block {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--red));
+}
 .rule.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
 .rule.removing { animation: fly-out 0.28s ease forwards; }
 .rule.flash { animation: flash-green 0.7s ease; }
@@ -1425,6 +1459,39 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .toast.ok { border-left-color: var(--green); }
 .toast.err { border-left-color: var(--red); }
 .toast.leaving { animation: toast-out 0.25s ease forwards; }
+
+/* ---------- Session restore offer (top-right, stays until answered) ---------- */
+.session-offer {
+  position: fixed;
+  top: 60px;      /* below the topbar */
+  right: 14px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--accent);
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  animation: toast-in 0.25s ease;
+}
+.session-offer .so-close {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--muted-2);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  margin: -4px -6px -4px 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.session-offer .so-close:hover { color: var(--text); background: var(--line); }
+.session-offer.leaving { animation: toast-out 0.25s ease forwards; }
 
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
