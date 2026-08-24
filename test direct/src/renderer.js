@@ -808,24 +808,23 @@ function hasRuleIn(section, type, value) {
 }
 
 function syncMarks() {
-  // geosite circles
-  document.querySelectorAll('.dom').forEach((d) => {
-    const key = d.dataset.key;
-    const on = state.addedKeys.has(key);
-    d.classList.toggle('added', on);
-    const c = d.querySelector('.circle');
-    if (c) { c.classList.toggle('on', on); c.textContent = on ? '✓' : '+'; }
+  // geosite rows: recompute section tints (categories + domain rows)
+  document.querySelectorAll('#geosite-tree .cat').forEach((c) => {
+    applySectionTint(c, 'geosite', c.dataset.code || '',
+      c.querySelector('.cat-add'));
+  });
+  document.querySelectorAll('#geosite-tree .dom').forEach((d) => {
+    const val = d.querySelector('.val');
+    if (val && d.dataset.key) {
+      const keyParts = d.dataset.key.split(':');
+      const type = keyParts[0];
+      const value = keyParts.slice(1).join(':');
+      applySectionTint(d, type === 'plain' ? 'plain' : type, value, null);
+    }
   });
   // geoip tiles
   document.querySelectorAll('.tile').forEach((t) => {
     t.classList.toggle('added', state.addedKeys.has(t.dataset.key));
-  });
-  // geosite categories
-  document.querySelectorAll('.cat').forEach((c) => {
-    const on = state.addedKeys.has(c.dataset.geokey);
-    c.classList.toggle('cat-added', on);
-    const b = c.querySelector('.cat-add');
-    if (b) b.textContent = on ? '✓ geosite' : '+ geosite';
   });
 }
 
@@ -1479,6 +1478,31 @@ async function runGeositeSearch() {
   status.textContent = `Найдено: ${totalHits} доменов в ${results.length} категориях`;
 }
 
+// Section tinting for the geosite tree: marks the element with
+// in-direct / in-proxy / in-block classes based on where the value currently
+// exists. Works from ANY active tab — that's the whole point: no need to hop
+// between Direct/Proxy/Block to see what's routed where.
+const SECTION_CLASSES = [
+  ['Direct', 'in-direct'],
+  ['Proxy', 'in-proxy'],
+  ['Block', 'in-block']
+];
+function applySectionTint(elm, type, value, addBtn) {
+  const key = ruleKey(type, value);
+  elm.classList.remove('in-direct', 'in-proxy', 'in-block');
+  let any = false;
+  for (const [sec, cls] of SECTION_CLASSES) {
+    if (state.rules.some((r) => r.section === sec && ruleKey(r.type, r.value) === key)) {
+      elm.classList.add(cls);
+      any = true;
+    }
+  }
+  if (addBtn) {
+    addBtn.textContent = any ? '✓ geosite' : '+ geosite';
+  }
+  return any;
+}
+
 function createCatEl(cat, search) {
   const wrap = el('div', 'cat');
   wrap.dataset.code = cat.code;
@@ -1493,7 +1517,11 @@ function createCatEl(cat, search) {
   if (search) count.title = 'совпадений / всего доменов';
   const addBtn = el('button', 'cat-add', '+ geosite');
   addBtn.title = 'Добавить geosite:' + cat.code + ' в правила';
-  if (state.addedKeys.has(catKey)) { wrap.classList.add('cat-added'); addBtn.textContent = '✓ geosite'; }
+  // Which section(s) already hold geosite:<CODE> — visible from any tab.
+  // Green Direct / blue Proxy / red Block; the row text and the ✓ button
+  // take the color of the section, mixed when present in several.
+  applySectionTint(wrap, 'geosite', cat.code, addBtn);
+  if (wrap.dataset.sectint) { addBtn.textContent = '✓ geosite'; }
 
   head.append(chev, name, count, addBtn);
   const body = el('div', 'cat-body');
@@ -1626,34 +1654,17 @@ function createDomEl(code, d, index, body, countEl) {
   row.dataset.key = key;
   row.draggable = true;
 
-  // Green means "already in the SELECTED category of MY categories" when this
-  // row is rendered inside the Geofiles tab; in the Editor tab it still means
-  // "already among the editor rules" (state.addedKeys).
-  const gfCat = gfState && gfState.cats
-    ? gfState.cats[gfState.mode].find((c) => c.code === code)
-    : null;
-  const gfAdded = gfCat
-    ? gfCat.items.some((it) => String(it.value != null ? it.value : it).toLowerCase()
-      === String(d.value).toLowerCase())
-    : state.addedKeys.has(key);
+  // Same section tint as categories: the domain's text turns green/blue/red
+  // if it's in Direct/Proxy/Block rules — visible from any tab.
+  applySectionTint(row, ruleType, d.value, null);
 
-  const circle = el('div', 'circle', gfAdded ? '✓' : '+');
-  if (gfAdded) { circle.classList.add('on'); row.classList.add('added'); }
   const dtype = el('span', 'dtype', d.type);
   const val = el('span', 'val', d.value);
   val.title = d.value;
   const del = el('button', 'ddel', '🗑');
   del.title = 'Удалить домен из категории';
 
-  row.append(circle, dtype, val, del);
-
-  const addThis = () => {
-    if (addRule(ruleType, d.value, { flash: true })) {
-      syncMarks();
-      toast('Добавлено: ' + d.value, 'ok');
-    }
-  };
-  circle.addEventListener('click', addThis);
+  row.append(dtype, val, del);
 
   del.addEventListener('click', async (e) => {
     e.stopPropagation();

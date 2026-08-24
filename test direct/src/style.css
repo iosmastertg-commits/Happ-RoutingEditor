@@ -1191,12 +1191,38 @@ input[type="text"]:focus, textarea:focus, select:focus {
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .cat-add:hover { color: var(--purple); border-color: var(--purple); background: rgba(160, 110, 255, 0.08); }
-.cat.cat-added .cat-name { color: var(--green); }
-.cat.cat-added .cat-add {
-  color: var(--green);
-  border-color: var(--green);
-  box-shadow: 0 0 10px var(--green-glow);
+
+/* ---------- Section tints in the geosite tree ---------- */
+/* A category/domain already routed by the rules is colored by its section —
+   green Direct, blue Proxy, red Block — visible from ANY editor tab, so no
+   tab-hopping to see what's where. Several sections at once = mixed tint. */
+.cat.in-direct { --tint: var(--green); }
+.cat.in-proxy  { --tint: var(--accent); }
+.cat.in-block  { --tint: var(--red); }
+.cat.in-direct.in-proxy,
+.cat.in-direct.in-block,
+.cat.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
+.cat[class*="in-"] .cat-name { color: var(--tint); font-weight: 600; }
+.cat[class*="in-"] .cat-head {
+  border-color: color-mix(in srgb, var(--tint) 55%, transparent);
 }
+.cat[class*="in-"] .cat-add {
+  color: var(--tint);
+  border-color: var(--tint);
+}
+
+.dom.in-direct { --tint: var(--green); }
+.dom.in-proxy  { --tint: var(--accent); }
+.dom.in-block  { --tint: var(--red); }
+.dom.in-direct.in-proxy,
+.dom.in-direct.in-block,
+.dom.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
+.dom[class*="in-"] .val { color: var(--tint); }
+.dom[class*="in-"] .dtype { color: var(--tint); opacity: 0.75; }
+
+.theme-glass .cat.in-direct, .theme-glass .dom.in-direct { --tint: #35d07f; }
+.theme-glass .cat.in-proxy,  .theme-glass .dom.in-proxy  { --tint: #6ea8ff; }
+.theme-glass .cat.in-block,  .theme-glass .dom.in-block  { --tint: #ff6b6b; }
 
 .cat-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
 .cat.open .cat-body { max-height: 4000px; }
