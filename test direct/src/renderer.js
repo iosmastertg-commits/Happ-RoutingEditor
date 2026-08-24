@@ -1287,6 +1287,18 @@ async function applyJsonImport(jsonObj) {
   state.importedJson = jsonObj;
   if (jsonObj.Geositeurl) $('#conv-src-geosite').value = jsonObj.Geositeurl;
   if (jsonObj.Geoipurl) $('#conv-src-geoip').value = jsonObj.Geoipurl;
+  // The config's .dat sources apply everywhere, not just the converter: the
+  // editor columns and the Geofiles source field all follow it, so categories
+  // resolve against the same .dat the rules were built for.
+  if (jsonObj.Geositeurl) {
+    $('#geosite-url').value = jsonObj.Geositeurl;
+    $('#gf-src-url').value = jsonObj.Geositeurl;
+    state.geositeSource = jsonObj.Geositeurl;
+  }
+  if (jsonObj.Geoipurl) {
+    $('#geoip-url').value = jsonObj.Geoipurl;
+    state.geoipSource = jsonObj.Geoipurl;
+  }
   const seen = new Set();
   // Section-aware: parseJsonImport tags each rule with its target section, so
   // the same value may legitimately land in Direct and Proxy both.
