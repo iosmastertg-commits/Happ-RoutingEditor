@@ -1224,6 +1224,18 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .theme-glass .cat.in-proxy,  .theme-glass .dom.in-proxy  { --tint: #6ea8ff; }
 .theme-glass .cat.in-block,  .theme-glass .dom.in-block  { --tint: #ff6b6b; }
 
+/* Attention flash for a category the export check found missing from the
+   loaded .dat — scrolled to and blinked so the user spots it immediately. */
+@keyframes missing-flash {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 2px var(--red), 0 0 18px var(--red); }
+}
+.cat.flash-missing .cat-head {
+  border-color: var(--red);
+  animation: missing-flash 0.8s ease 3;
+}
+.cat.flash-missing .cat-name { color: var(--red); font-weight: 600; }
+
 .cat-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
 .cat.open .cat-body { max-height: 4000px; }
 .cat-inner { padding: 4px 6px 8px 22px; }

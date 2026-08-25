@@ -566,11 +566,8 @@ function markMissingCategories() {
       if (!state.convMissing.geoip.includes(r.value)) state.convMissing.geoip.push(r.value);
     }
   }
-  renderConvSrcList();
   renderRulesList();
-  // jump to the first missing rule in the converter list
-  const first = convSrcList.querySelector('.rule.missing-cat');
-  if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return state.convMissing;
 }
 
 function renderConvResList(json) {
@@ -716,6 +713,7 @@ $('#conv-run').addEventListener('click', async () => {
   // loaded .dat files. Missing ones are highlighted red, the list scrolls to
   // the first offender, and conversion is blocked with a how-to-fix toast.
   markMissingCategories();
+  renderConvSrcList();
   const mg = state.convMissing.geosite, mi = state.convMissing.geoip;
   if (mg.length || mi.length) {
     const parts = [];
@@ -723,6 +721,8 @@ $('#conv-run').addEventListener('click', async () => {
     mi.slice(0, 3).forEach((c) => parts.push('geoip:' + c + ' есть в ваших правилах, но его нету в указанном geoip. Добавьте в ваш geoip - geoip:' + c));
     if (mg.length > 3 || mi.length > 3) parts.push('…и ещё ' + Math.max(0, mg.length - 3) + (mi.length ? ' / ' + mi.length : ''));
     toast(parts.join('\n'), 'err', 8000);
+    const first = convSrcList.querySelector('.rule.missing-cat');
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
   const before = { Direct: 0, Proxy: 0, Block: 0 };
@@ -1161,7 +1161,56 @@ function buildRoutingLink(scheme) {
   return scheme + '://routing/onadd/' + utf8ToBase64(JSON.stringify(json));
 }
 
+// Happ/Incy resolve geosite:/geoip: categories against THEIR OWN .dat files —
+// a category that exists in the rules but not in the user's .dat is an error
+// on their side. Before copying the link, verify every category against the
+// loaded .dat, highlight offenders red and scroll the tree to the first one.
+async function validateCategoriesForExport() {
+  const needGeosite = state.rules.some((r) => r.type === 'geosite');
+  const needGeoip = state.rules.some((r) => r.type === 'geoip');
+
+  // The check is only as good as the loaded metadata; without it we'd wrongly
+  // reject valid categories. Ask to load rather than silently passing.
+  if (needGeosite && !state.geositeMeta.length) {
+    toast('Сначала загрузите geosite.dat (колонка Geosite → «Загрузить») — проверка категорий', 'err', 5000);
+    return false;
+  }
+  if (needGeoip && !state.geoipMeta.length) {
+    toast('Сначала загрузите geoip.dat (колонка GeoIP → «Загрузить») — проверка категорий', 'err', 5000);
+    return false;
+  }
+
+  const missing = markMissingCategories();
+  if (missing.geosite.length || missing.geoip.length) {
+    const parts = [];
+    missing.geosite.slice(0, 3).forEach((c) =>
+      parts.push('geosite:' + c + ' есть в правилах, но его нет в вашем geosite.dat'));
+    missing.geoip.slice(0, 3).forEach((c) =>
+      parts.push('geoip:' + c + ' есть в правилах, но его нет в вашем geoip.dat'));
+    const rest = missing.geosite.length + missing.geoip.length - parts.length;
+    if (rest > 0) parts.push('…и ещё ' + rest);
+    parts.push('Добавьте их в ваш .dat или уберите из правил.');
+    toast(parts.join('\n'), 'err', 8000);
+    // Jump to the offender in the geosite/geoip tree so the user sees it in place.
+    const firstMissing = missing.geosite[0] || missing.geoip[0];
+    const row = document.querySelector('#geosite-tree .cat[data-code="' +
+      CSS.escape(String(firstMissing).toUpperCase()) + '"]')
+      || document.querySelector('#geoip-tiles .tile[data-key="geoip:' +
+        CSS.escape(String(firstMissing).toLowerCase()) + '"]');
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.classList.remove('flash-missing');
+      void row.offsetWidth;
+      row.classList.add('flash-missing');
+      setTimeout(() => row.classList.remove('flash-missing'), 2400);
+    }
+    return false;
+  }
+  return true;
+}
+
 async function copyRoutingLink(scheme, label) {
+  if (!await validateCategoriesForExport()) return;
   const link = buildRoutingLink(scheme);
   if (!link) return toast('Нечего экспортировать', 'err');
   try {
