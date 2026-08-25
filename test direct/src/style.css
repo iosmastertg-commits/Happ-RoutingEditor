@@ -1224,7 +1224,66 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .theme-glass .cat.in-proxy,  .theme-glass .dom.in-proxy  { --tint: #6ea8ff; }
 .theme-glass .cat.in-block,  .theme-glass .dom.in-block  { --tint: #ff6b6b; }
 
-/* Attention flash for a category the export check found missing from the
+/* ---------- Section tints on geoip tiles ---------- */
+/* Same semantics as the geosite tree: a tile whose geoip:<CODE> is already
+   routed gets the section's outline+text color from any tab. */
+.tile.in-direct { --tint: var(--green); }
+.tile.in-proxy  { --tint: var(--accent); }
+.tile.in-block  { --tint: var(--red); }
+.tile.in-direct.in-proxy,
+.tile.in-direct.in-block,
+.tile.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
+.tile[class*="in-"] { border-color: color-mix(in srgb, var(--tint) 55%, transparent); }
+.tile[class*="in-"] .tile-code { color: var(--tint); font-weight: 600; }
+.theme-glass .tile.in-direct { --tint: #35d07f; }
+.theme-glass .tile.in-proxy  { --tint: #6ea8ff; }
+.theme-glass .tile.in-block  { --tint: #ff6b6b; }
+
+/* Expanded CIDR list inside an editor geoip tile. The tile grows in place;
+   the grid stretches the row it's in, so cap the panel and scroll inside. */
+.tile { position: relative; }
+.tile-expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted-2);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tile-expand:hover { color: var(--amber); border-color: var(--amber); }
+.geoip-cidrs {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  text-align: left;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.geoip-cidr-row {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text);
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.geoip-cidr-row:hover { background: var(--panel-3); }
+/* In the Geofiles source: a CIDR already present in my categories. */
+.geoip-cidr-row.owned {
+  color: var(--green);
+  background: rgba(46, 194, 126, 0.08);
+}
+/* Same green outline semantics as gf-src-owned for expanded tiles there. */
+.tiles.gf-geoip-tiles .tile.open.gf-src-owned { border-color: var(--green); }
+
+/* ---------- Attention flash for a category the export check found missing from the
    loaded .dat — scrolled to and blinked so the user spots it immediately. */
 @keyframes missing-flash {
   0%, 100% { box-shadow: none; }
@@ -1533,6 +1592,9 @@ input[type="text"]:focus, textarea:focus, select:focus {
   font-size: 13px;
   animation: toast-in 0.25s ease;
 }
+/* The force-copy variant sits above toasts so repeated validation errors
+   stacking at the bottom can never hide its button. */
+.force-copy { z-index: 120; max-width: 420px; }
 .session-offer .so-close {
   align-self: flex-start;
   background: none;

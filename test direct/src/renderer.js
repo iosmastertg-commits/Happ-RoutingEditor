@@ -282,9 +282,20 @@ function tryParseJson(text) {
 
 function toast(msg, kind, duration) {
   const wrap = $('#toast-wrap');
+  // Same message already on screen (e.g. repeated clicks on a blocked export)?
+  // Restart its lifetime instead of stacking an identical copy over the UI.
+  const dup = [...wrap.children].find((t) => t.textContent === msg);
+  if (dup) {
+    clearTimeout(dup._timer);
+    dup._timer = setTimeout(() => {
+      dup.classList.add('leaving');
+      setTimeout(() => dup.remove(), 250);
+    }, duration || 2200);
+    return;
+  }
   const t = el('div', 'toast' + (kind ? ' ' + kind : ''), msg);
   wrap.appendChild(t);
-  setTimeout(() => {
+  t._timer = setTimeout(() => {
     t.classList.add('leaving');
     setTimeout(() => t.remove(), 250);
   }, duration || 2200);
@@ -822,9 +833,11 @@ function syncMarks() {
       applySectionTint(d, type === 'plain' ? 'plain' : type, value, null);
     }
   });
-  // geoip tiles
-  document.querySelectorAll('.tile').forEach((t) => {
+  // geoip tiles: added-mark + section tint (same logic as geosite rows)
+  document.querySelectorAll('#geoip-tiles .tile').forEach((t) => {
     t.classList.toggle('added', state.addedKeys.has(t.dataset.key));
+    const code = (t.dataset.key || '').replace(/^geoip:/, '');
+    if (code) applySectionTint(t, 'geoip', code, null);
   });
 }
 
@@ -1214,7 +1227,12 @@ async function validateCategoriesForExport(scheme, label) {
 // After a blocked export, offer an escape hatch that survives on screen until
 // used or dismissed — a short-lived toast is too easy to miss.
 function showForceCopyOption(scheme, label) {
-  if (document.querySelector('.force-copy')) return;
+  // Repeated blocked exports update the existing panel instead of stacking.
+  const existing = document.querySelector('.force-copy');
+  if (existing) {
+    existing.querySelector('.so-msg').textContent = label + ': категории отсутствуют в .dat';
+    return;
+  }
   const bar = el('div', 'session-offer force-copy');
   const msg = el('span', 'so-msg', label + ': категории отсутствуют в .dat');
   const btn = el('button', 'btn primary', 'Всё равно скопировать');
@@ -1845,7 +1863,34 @@ function createTileEl(c) {
   tile.dataset.key = key;
   tile.draggable = true;
   if (state.addedKeys.has(key)) tile.classList.add('added');
+  // Same section coloring as the geosite tree: green/blue/red outline no
+  // matter which Direct/Proxy/Block tab is active right now.
+  applySectionTint(tile, 'geoip', c.code, null);
   tile.append(el('div', 'tile-code', c.code), el('div', 'tile-count', c.count + ' cidr'));
+
+  // Corner chevron expands the tile into a browsable CIDR list (view only —
+  // the click-to-add behaviour of the tile body stays untouched).
+  const exp = el('button', 'tile-expand', '▾');
+  exp.title = 'Показать IP внутри';
+  exp.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const open = tile.classList.toggle('open');
+    exp.textContent = open ? '▴' : '▾';
+    let body = tile.querySelector('.geoip-cidrs');
+    if (!open) { if (body) body.style.display = 'none'; return; }
+    if (body) { body.style.display = ''; return; }
+    body = el('div', 'geoip-cidrs', 'Загрузка…');
+    tile.appendChild(body);
+    try {
+      const cidrs = await window.api.geoipCidrs(c.code);
+      body.textContent = '';
+      if (!cidrs || !cidrs.length) { body.textContent = 'Список пуст'; return; }
+      for (const cidr of cidrs) body.appendChild(el('div', 'geoip-cidr-row', cidr));
+    } catch (err) {
+      body.textContent = 'Ошибка: ' + err.message;
+    }
+  });
+  tile.appendChild(exp);
 
   tile.addEventListener('click', () => {
     if (addRule('geoip', c.code, { flash: true })) {
@@ -2075,6 +2120,39 @@ function gfSrcTileEl(c) {
   if (gfState.cats[gfState.mode].some((x) => x.code === c.code)) {
     tile.classList.add('gf-src-owned');
   }
+  // Expandable CIDR list (same pattern as editor tiles); CIDRs already in any
+  // of my geoip categories are marked so partial transfer is visible.
+  const exp = el('button', 'tile-expand', '▾');
+  exp.title = 'Показать IP внутри';
+  exp.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const open = tile.classList.toggle('open');
+    exp.textContent = open ? '▴' : '▾';
+    let body = tile.querySelector('.geoip-cidrs');
+    if (!open) { if (body) body.style.display = 'none'; return; }
+    if (body) { body.style.display = ''; return; }
+    body = el('div', 'geoip-cidrs', 'Загрузка…');
+    tile.appendChild(body);
+    try {
+      const cidrs = await gfLoadItems(c.code);
+      body.textContent = '';
+      if (!cidrs || !cidrs.length) { body.textContent = 'Список пуст'; return; }
+      // Which CIDRs are already mine — across ALL my geoip categories.
+      const mine = new Set();
+      for (const cat of gfState.cats.geoip) {
+        for (const it of cat.items) mine.add(String(it).toLowerCase());
+      }
+      for (const cidr of cidrs) {
+        const row = el('div', 'geoip-cidr-row', cidr);
+        if (mine.has(String(cidr).toLowerCase())) row.classList.add('owned');
+        body.appendChild(row);
+      }
+    } catch (err) {
+      body.textContent = 'Ошибка: ' + err.message;
+    }
+  });
+  tile.appendChild(exp);
+
   tile.addEventListener('click', async () => {
     const items = await gfLoadItems(c.code);
     if (!items.length) return;

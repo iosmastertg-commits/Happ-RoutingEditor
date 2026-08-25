@@ -641,7 +641,9 @@ ipcMain.handle('update:installBytes', async (_e, bytes) => {
 
 // Single instance: two copies racing to overwrite the same .exe would corrupt
 // the install. The second launch just focuses the existing window.
-if (!app.requestSingleInstanceLock()) {
+// RFE_ALLOW_SECOND=1 opts out for development (a dev instance must run next
+// to the installed copy without stealing its lock or focusing its window).
+if (!process.env.RFE_ALLOW_SECOND && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
