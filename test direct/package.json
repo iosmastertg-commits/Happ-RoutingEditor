@@ -1,6 +1,6 @@
 {
   "name": "rule-flow-editor",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Visual rule editor for proxy/routing with geosite/geoip .dat support",
   "main": "main.js",
   "author": "Rule Flow",
