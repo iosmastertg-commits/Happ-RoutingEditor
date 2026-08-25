@@ -1226,15 +1226,25 @@ input[type="text"]:focus, textarea:focus, select:focus {
 
 /* ---------- Section tints on geoip tiles ---------- */
 /* Same semantics as the geosite tree: a tile whose geoip:<CODE> is already
-   routed gets the section's outline+text color from any tab. */
+   routed gets the section's outline+text color from any tab. Solid border —
+   a 55% mix read as grey on the dark panels. */
 .tile.in-direct { --tint: var(--green); }
 .tile.in-proxy  { --tint: var(--accent); }
 .tile.in-block  { --tint: var(--red); }
 .tile.in-direct.in-proxy,
 .tile.in-direct.in-block,
 .tile.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
-.tile[class*="in-"] { border-color: color-mix(in srgb, var(--tint) 55%, transparent); }
-.tile[class*="in-"] .tile-code { color: var(--tint); font-weight: 600; }
+.tiles .tile[class*="in-"] { border-color: var(--tint); }
+.tiles .tile[class*="in-"]:hover { border-color: var(--tint); }
+.tiles .tile[class*="in-"] .tile-code { color: var(--tint); font-weight: 600; }
+/* The tint is the constant truth — it beats the plain added-green (which
+   would otherwise recolor the tile when its own section tab is open). */
+.tiles .tile.added[class*="in-"] {
+  border-color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 10%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--tint) 45%, transparent);
+}
+.tiles .tile.added[class*="in-"] .tile-code { color: var(--tint); }
 .theme-glass .tile.in-direct { --tint: #35d07f; }
 .theme-glass .tile.in-proxy  { --tint: #6ea8ff; }
 .theme-glass .tile.in-block  { --tint: #ff6b6b; }
@@ -1592,9 +1602,17 @@ input[type="text"]:focus, textarea:focus, select:focus {
   font-size: 13px;
   animation: toast-in 0.25s ease;
 }
-/* The force-copy variant sits above toasts so repeated validation errors
-   stacking at the bottom can never hide its button. */
-.force-copy { z-index: 120; max-width: 420px; }
+/* The force-copy variant is a toast (bottom-center) with a bypass button
+   inside — message and escape hatch are one thing, long-lived (30s). */
+.toast.force-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-width: 480px;
+}
+.toast.force-copy .fc-msg { white-space: pre-line; }
+.toast.force-copy .fc-btn { justify-content: center; }
 .session-offer .so-close {
   align-self: flex-start;
   background: none;

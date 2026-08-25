@@ -1203,7 +1203,6 @@ async function validateCategoriesForExport(scheme, label) {
     const rest = missing.geosite.length + missing.geoip.length - parts.length;
     if (rest > 0) parts.push('…и ещё ' + rest);
     parts.push('Добавьте их в ваш .dat или уберите из правил.');
-    toast(parts.join('\n'), 'err', 8000);
     // Jump to the offender in the geosite/geoip tree so the user sees it in place.
     const firstMissing = missing.geosite[0] || missing.geoip[0];
     const row = document.querySelector('#geosite-tree .cat[data-code="' +
@@ -1217,25 +1216,23 @@ async function validateCategoriesForExport(scheme, label) {
       row.classList.add('flash-missing');
       setTimeout(() => row.classList.remove('flash-missing'), 2400);
     }
-    // The user may know better: a persistent button lets them copy anyway.
-    showForceCopyOption(scheme, label);
+    // The user may know better: the bypass lives inside the toast itself so
+    // the message and the escape hatch are one thing, bottom-center.
+    showForceCopyOption(scheme, label, parts.join('\n'));
     return false;
   }
   return true;
 }
 
-// After a blocked export, offer an escape hatch that survives on screen until
-// used or dismissed — a short-lived toast is too easy to miss.
-function showForceCopyOption(scheme, label) {
-  // Repeated blocked exports update the existing panel instead of stacking.
-  const existing = document.querySelector('.force-copy');
-  if (existing) {
-    existing.querySelector('.so-msg').textContent = label + ': категории отсутствуют в .dat';
-    return;
-  }
-  const bar = el('div', 'session-offer force-copy');
-  const msg = el('span', 'so-msg', label + ': категории отсутствуют в .dat');
-  const btn = el('button', 'btn primary', 'Всё равно скопировать');
+// After a blocked export, the toast (bottom-center) carries a bypass button.
+// Repeated blocked exports refresh the same toast instead of stacking.
+function showForceCopyOption(scheme, label, msgText) {
+  const wrap = $('#toast-wrap');
+  const dup = [...wrap.children].find((t) => t.classList.contains('force-copy'));
+  if (dup) dup.remove();
+  const t = el('div', 'toast err force-copy');
+  const msg = el('span', 'fc-msg', msgText);
+  const btn = el('button', 'btn primary fc-btn', 'Всё равно скопировать');
   btn.title = 'Скопировать ссылку без проверки категорий';
   btn.addEventListener('click', async () => {
     const link = buildRoutingLink(scheme);
@@ -1246,14 +1243,14 @@ function showForceCopyOption(scheme, label) {
     } catch (err) {
       toast('Ошибка: ' + err.message, 'err');
     }
-    bar.remove();
+    t.remove();
   });
-  const closeBtn = el('button', 'so-close', '×');
-  closeBtn.title = 'Закрыть';
-  closeBtn.setAttribute('aria-label', 'Закрыть');
-  closeBtn.addEventListener('click', () => bar.remove());
-  bar.append(msg, btn, closeBtn);
-  document.body.appendChild(bar);
+  t.append(msg, btn);
+  wrap.appendChild(t);
+  t._timer = setTimeout(() => {
+    t.classList.add('leaving');
+    setTimeout(() => t.remove(), 250);
+  }, 30000);
 }
 
 async function copyRoutingLink(scheme, label) {
