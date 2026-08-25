@@ -1236,6 +1236,23 @@ input[type="text"]:focus, textarea:focus, select:focus {
 }
 .cat.flash-missing .cat-name { color: var(--red); font-weight: 600; }
 
+/* ---------- Geofiles: source rows owned by "my categories" ---------- */
+/* The whole source category/country row turns editor-green when it already
+   exists among "my categories" (partially or fully). */
+.gf-src-cat.gf-src-owned .gf-src-cat-head { border-color: var(--green); }
+.gf-src-cat.gf-src-owned .gf-src-cat-name {
+  color: var(--green);
+  font-weight: 600;
+}
+.gf-src-cat.gf-src-owned .cat-count { color: var(--green); opacity: 0.8; }
+.gf-src-cat.gf-src-owned .gf-src-add-all,
+.gf-src-cat.gf-src-owned .btn.ghost:last-child {
+  color: var(--green);
+  border-color: var(--green);
+}
+.tile.gf-src-owned { border-color: var(--green); }
+.tile.gf-src-owned .tile-code { color: var(--green); font-weight: 600; }
+
 .cat-body { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
 .cat.open .cat-body { max-height: 4000px; }
 .cat-inner { padding: 4px 6px 8px 22px; }

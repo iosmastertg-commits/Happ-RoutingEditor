@@ -1165,7 +1165,7 @@ function buildRoutingLink(scheme) {
 // a category that exists in the rules but not in the user's .dat is an error
 // on their side. Before copying the link, verify every category against the
 // loaded .dat, highlight offenders red and scroll the tree to the first one.
-async function validateCategoriesForExport() {
+async function validateCategoriesForExport(scheme, label) {
   const needGeosite = state.rules.some((r) => r.type === 'geosite');
   const needGeoip = state.rules.some((r) => r.type === 'geoip');
 
@@ -1204,13 +1204,42 @@ async function validateCategoriesForExport() {
       row.classList.add('flash-missing');
       setTimeout(() => row.classList.remove('flash-missing'), 2400);
     }
+    // The user may know better: a persistent button lets them copy anyway.
+    showForceCopyOption(scheme, label);
     return false;
   }
   return true;
 }
 
+// After a blocked export, offer an escape hatch that survives on screen until
+// used or dismissed — a short-lived toast is too easy to miss.
+function showForceCopyOption(scheme, label) {
+  if (document.querySelector('.force-copy')) return;
+  const bar = el('div', 'session-offer force-copy');
+  const msg = el('span', 'so-msg', label + ': категории отсутствуют в .dat');
+  const btn = el('button', 'btn primary', 'Всё равно скопировать');
+  btn.title = 'Скопировать ссылку без проверки категорий';
+  btn.addEventListener('click', async () => {
+    const link = buildRoutingLink(scheme);
+    if (!link) { toast('Нечего экспортировать', 'err'); return; }
+    try {
+      await window.api.clipboardWrite(link);
+      toast(label + '-ссылка скопирована (без проверки)', 'ok');
+    } catch (err) {
+      toast('Ошибка: ' + err.message, 'err');
+    }
+    bar.remove();
+  });
+  const closeBtn = el('button', 'so-close', '×');
+  closeBtn.title = 'Закрыть';
+  closeBtn.setAttribute('aria-label', 'Закрыть');
+  closeBtn.addEventListener('click', () => bar.remove());
+  bar.append(msg, btn, closeBtn);
+  document.body.appendChild(bar);
+}
+
 async function copyRoutingLink(scheme, label) {
-  if (!await validateCategoriesForExport()) return;
+  if (!await validateCategoriesForExport(scheme, label)) return;
   const link = buildRoutingLink(scheme);
   if (!link) return toast('Нечего экспортировать', 'err');
   try {
@@ -2042,6 +2071,10 @@ async function gfRenderTree() {
 function gfSrcTileEl(c) {
   const tile = el('div', 'tile');
   tile.append(el('div', 'tile-code', c.code), el('div', 'tile-count', c.count + ' cidr'));
+  // Presence mark: the country tile turns green once it's among my categories.
+  if (gfState.cats[gfState.mode].some((x) => x.code === c.code)) {
+    tile.classList.add('gf-src-owned');
+  }
   tile.addEventListener('click', async () => {
     const items = await gfLoadItems(c.code);
     if (!items.length) return;
@@ -2121,6 +2154,12 @@ function gfSearchCatEl(r) {
   head.append(name, cnt, addAll);
   const body = el('div', 'gf-src-cat-body');
   wrap.append(head, body);
+  // Same presence mark as the plain source list.
+  if (gfState.cats[gfState.mode].some((c) => c.code === r.code)) {
+    wrap.classList.add('gf-src-owned');
+    addAll.textContent = '✓ geosite';
+    addAll.title = 'Категория уже в «Моих категориях»';
+  }
   // Reuse the standard source body renderer (matches are already domain objects).
   gfFillSrcBody(body, r.matches);
   return wrap;
@@ -2169,6 +2208,14 @@ function gfSrcCatEl(cat) {
   head.append(name, cnt, addAll);
   const body = el('div', 'gf-src-cat-body');
   wrap.append(head, body);
+  // Editor-style presence mark: the whole source row turns green when this
+  // category already exists among "my categories" (even partially — the user
+  // expands it to see which domains are marked). Styled like .cat-added.
+  if (gfState.cats[gfState.mode].some((c) => c.code === cat.code)) {
+    wrap.classList.add('gf-src-owned');
+    addAll.textContent = '✓ geosite';
+    addAll.title = 'Категория уже в «Моих категориях»';
+  }
 
   let open = false;
   head.addEventListener('click', async (e) => {
