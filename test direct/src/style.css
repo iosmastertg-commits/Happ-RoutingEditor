@@ -1202,11 +1202,11 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .cat.in-direct.in-proxy,
 .cat.in-direct.in-block,
 .cat.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
-.cat[class*="in-"] .cat-name { color: var(--tint); font-weight: 600; }
-.cat[class*="in-"] .cat-head {
+.cat:is(.in-direct, .in-proxy, .in-block) .cat-name { color: var(--tint); font-weight: 600; }
+.cat:is(.in-direct, .in-proxy, .in-block) .cat-head {
   border-color: color-mix(in srgb, var(--tint) 55%, transparent);
 }
-.cat[class*="in-"] .cat-add {
+.cat:is(.in-direct, .in-proxy, .in-block) .cat-add {
   color: var(--tint);
   border-color: var(--tint);
 }
@@ -1217,8 +1217,8 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .dom.in-direct.in-proxy,
 .dom.in-direct.in-block,
 .dom.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
-.dom[class*="in-"] .val { color: var(--tint); }
-.dom[class*="in-"] .dtype { color: var(--tint); opacity: 0.75; }
+.dom:is(.in-direct, .in-proxy, .in-block) .val { color: var(--tint); }
+.dom:is(.in-direct, .in-proxy, .in-block) .dtype { color: var(--tint); opacity: 0.75; }
 
 .theme-glass .cat.in-direct, .theme-glass .dom.in-direct { --tint: #35d07f; }
 .theme-glass .cat.in-proxy,  .theme-glass .dom.in-proxy  { --tint: #6ea8ff; }

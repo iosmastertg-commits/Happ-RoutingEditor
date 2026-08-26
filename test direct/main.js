@@ -480,14 +480,17 @@ ipcMain.handle('geo:coveredBy', async (_e, payload) => {
   // process by sending unbounded arrays.
   const codes = (Array.isArray(payload && payload.codes) ? payload.codes : []).slice(0, 5000).map(String);
   const haveList = Array.isArray(payload && payload.have) ? payload.have : [];
-  if (haveList.length > 200000) return {};
+  if (haveList.length > 200000) return Object.create(null);
   const have = new Set(haveList.map((v) => String(v).toLowerCase()));
+  // Index the store once instead of a linear find() per code.
+  const ipIdx = kind === 'geoip'
+    ? new Map(geoipStore.map((c) => [c.code.toUpperCase(), c]))
+    : null;
   const out = Object.create(null);   // no __proto__ key collisions
-  for (const raw of codes.slice(0, 5000)) {
-    const code = raw || '';
+  for (const code of codes) {
     let items;
     if (kind === 'geoip') {
-      const c = geoipStore.find((x) => x.code.toUpperCase() === code.toUpperCase());
+      const c = ipIdx.get(code.toUpperCase());
       items = c ? c.cidrs : [];
     } else {
       items = geositeStore.get(code.toUpperCase()) || [];

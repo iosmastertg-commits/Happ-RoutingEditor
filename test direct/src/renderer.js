@@ -688,6 +688,8 @@ async function loadConvDat(kind) {
     const res = isGeosite
       ? await window.api.geositeLoad(payload)
       : await window.api.geoipLoad(payload);
+    // The converter loads into the SAME main-process store the editor and
+    // Geofiles read from — drop every cache/panel fed by the old .dat.
     if (isGeosite) {
       state.geositeMeta = res.categories;
       state.geositeCache = {};
@@ -700,6 +702,11 @@ async function loadConvDat(kind) {
       status.className = 'status ok';
       status.textContent = `GeoIP загружен — стран: ${res.countries.length}`;
     }
+    gfState.srcCache = {};
+    document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
+    document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
+    document.querySelectorAll('.tile.open .tile-expand').forEach((b) => { b.textContent = '▾'; });
+    syncMarks();
     return true;
   } catch (err) {
     status.className = 'status error';
@@ -740,8 +747,7 @@ $('#conv-run').addEventListener('click', async () => {
   // Pre-convert validation: every geosite:/geoip: rule must exist in the
   // loaded .dat files. Missing ones are highlighted red, the list scrolls to
   // the first offender, and conversion is blocked with a how-to-fix toast.
-  markMissingCategories();
-  renderConvSrcList();
+  markMissingCategories();   // re-renders both rule lists with fresh marks
   const mg = state.convMissing.geosite, mi = state.convMissing.geoip;
   if (mg.length || mi.length) {
     const parts = [];
@@ -2108,8 +2114,8 @@ async function gfApplySource(payload) {
   // Expanded CIDR panels hold rows from the PREVIOUS source — drop them so a
   // re-expand refetches instead of silently showing stale data.
   document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
-  document.querySelectorAll('.tile.open .tile-expand').forEach((b) => { b.textContent = '▾'; });
   document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
+  document.querySelectorAll('.tile.open .tile-expand').forEach((b) => { b.textContent = '▾'; });
   status.className = 'status ok';
   status.textContent = `Загружено: ${gfState.srcMeta.length} категорий`;
   gfRenderTree();
@@ -2914,6 +2920,12 @@ async function gfImportDat(payload, source) {
     const meta = isGeo ? res.categories : res.countries;
     status.className = 'status ok';
     status.textContent = 'Категорий в .dat: ' + meta.length;
+    // The store in main was just replaced — invalidate BEFORE the long import
+    // loop, so a failure mid-loop can't leave stale cached domains/CIDRs.
+    gfState.srcCache = {};
+    document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
+    document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
+    document.querySelectorAll('.tile.open .tile-expand').forEach((b) => { b.textContent = '▾'; });
     // Import every category into "My categories" (merge into existing with same code).
     const cats = gfState.cats[gfState.mode];
     let total = 0;
@@ -2934,10 +2946,6 @@ async function gfImportDat(payload, source) {
     }
     gfState.selected = cats.length ? cats[0].code : null;
     gfContentOpen = false;
-    gfState.srcCache = {}; // the .dat store changed — invalidate cached domains
-    document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
-    document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
-    document.querySelectorAll('.tile .tile-expand').forEach((b) => { b.textContent = '▾'; });
     scheduleSave();
     gfRenderCatList();
     gfRenderCatContent();
