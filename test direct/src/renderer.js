@@ -284,21 +284,28 @@ function toast(msg, kind, duration) {
   const wrap = $('#toast-wrap');
   // Same message already on screen (e.g. repeated clicks on a blocked export)?
   // Restart its lifetime instead of stacking an identical copy over the UI.
-  const dup = [...wrap.children].find((t) => t.textContent === msg);
-  if (dup) {
-    clearTimeout(dup._timer);
-    dup._timer = setTimeout(() => {
-      dup.classList.add('leaving');
-      setTimeout(() => dup.remove(), 250);
-    }, duration || 2200);
-    return;
+  // Toasts mid-exit are skipped: their pending removal can't be fully undone.
+  const dup = [...wrap.children].find((t) =>
+    t.textContent === msg && !t.classList.contains('leaving'));
+  armToastLifetime(dup || el('div', 'toast' + (kind ? ' ' + kind : ''), msg), duration || 2200);
+}
+
+// One place owns a toast's expiry so a refresh can't race a pending removal.
+function armToastLifetime(t, duration) {
+  clearTimeout(t._timer);
+  clearTimeout(t._removeTimer);
+  const isNew = !t.isConnected;
+  if (!isNew) {
+    // cancel a running exit animation before restarting the clock
+    t.classList.remove('leaving');
+    void t.offsetWidth;
+  } else {
+    $('#toast-wrap').appendChild(t);
   }
-  const t = el('div', 'toast' + (kind ? ' ' + kind : ''), msg);
-  wrap.appendChild(t);
   t._timer = setTimeout(() => {
     t.classList.add('leaving');
-    setTimeout(() => t.remove(), 250);
-  }, duration || 2200);
+    t._removeTimer = setTimeout(() => t.remove(), 250);
+  }, duration);
 }
 
 /* ============================ App tabs ============================ */
@@ -544,11 +551,14 @@ function renderConvSrcList() {
   const list = state.rules.filter((r) => (r.section || 'Direct') === convSrcSection);
   $('#conv-src-count').textContent = state.rules.length;
   $('#conv-src-empty').style.display = list.length ? 'none' : 'block';
-  const missing = new Set((state.convMissing && state.convMissing.geosite) || []);
+  const missingGs = new Set((state.convMissing && state.convMissing.geosite) || []);
+  const missingGi = new Set((state.convMissing && state.convMissing.geoip) || []);
+  const isMissing = (r) => r.type === 'geosite' ? missingGs.has(r.value)
+    : r.type === 'geoip' ? missingGi.has(r.value) : false;
   const frag = document.createDocumentFragment();
   for (const r of list) {
     const li = convRuleEl(r.type, r.value);
-    if (r.type === 'geosite' && missing.has(r.value)) li.classList.add('missing-cat');
+    if (isMissing(r)) li.classList.add('missing-cat');
     const del = el('button', 'del', '✕');
     del.title = 'Удалить';
     del.addEventListener('click', () => {
@@ -570,14 +580,21 @@ function markMissingCategories() {
   const gsCodes = new Set(state.geositeMeta.map((c) => c.code));
   const giCodes = new Set(state.geoipMeta.map((c) => c.code));
   for (const r of state.rules) {
+    // Dedupe case-insensitively: the .dat comparison above is uppercase, so
+    // rules `geosite:cn` and `geosite:CN` are one offender, not two.
     if (r.type === 'geosite' && !gsCodes.has(String(r.value).toUpperCase())) {
-      if (!state.convMissing.geosite.includes(r.value)) state.convMissing.geosite.push(r.value);
+      if (!state.convMissing.geosite.some((v) => String(v).toUpperCase() === String(r.value).toUpperCase())) {
+        state.convMissing.geosite.push(r.value);
+      }
     }
     if (r.type === 'geoip' && !giCodes.has(String(r.value).toUpperCase())) {
-      if (!state.convMissing.geoip.includes(r.value)) state.convMissing.geoip.push(r.value);
+      if (!state.convMissing.geoip.some((v) => String(v).toUpperCase() === String(r.value).toUpperCase())) {
+        state.convMissing.geoip.push(r.value);
+      }
     }
   }
   renderRulesList();
+  renderConvSrcList();
   return state.convMissing;
 }
 
@@ -730,7 +747,8 @@ $('#conv-run').addEventListener('click', async () => {
     const parts = [];
     mg.slice(0, 3).forEach((c) => parts.push('geosite:' + c + ' есть в ваших правилах, но его нету в указанном geosite. Добавьте в ваш geosite - geosite:' + c));
     mi.slice(0, 3).forEach((c) => parts.push('geoip:' + c + ' есть в ваших правилах, но его нету в указанном geoip. Добавьте в ваш geoip - geoip:' + c));
-    if (mg.length > 3 || mi.length > 3) parts.push('…и ещё ' + Math.max(0, mg.length - 3) + (mi.length ? ' / ' + mi.length : ''));
+    const rest = (mg.length > 3 ? mg.length - 3 : 0) + (mi.length > 3 ? mi.length - 3 : 0);
+    if (rest > 0) parts.push('…и ещё ' + rest);
     toast(parts.join('\n'), 'err', 8000);
     const first = convSrcList.querySelector('.rule.missing-cat');
     if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -934,12 +952,15 @@ function removeRule(id) {
 
 function renderRulesList() {
   rulesList.innerHTML = '';
-  const missing = new Set((state.convMissing && state.convMissing.geosite) || []);
+  const missingGs = new Set((state.convMissing && state.convMissing.geosite) || []);
+  const missingGi = new Set((state.convMissing && state.convMissing.geoip) || []);
+  const isMissing = (r) => r.type === 'geosite' ? missingGs.has(r.value)
+    : r.type === 'geoip' ? missingGi.has(r.value) : false;
   const frag = document.createDocumentFragment();
   for (const r of state.rules) {
     if (r.section === state.currentSection) {
       const el = createRuleEl(r);
-      if (r.type === 'geosite' && missing.has(r.value)) el.classList.add('missing-cat');
+      if (isMissing(r)) el.classList.add('missing-cat');
       el.classList.add('new-batch');
       // Cross-section badges: show which OTHER sections hold the same value,
       // so no tab-switching is needed to see the full picture.
@@ -1203,12 +1224,15 @@ async function validateCategoriesForExport(scheme, label) {
     const rest = missing.geosite.length + missing.geoip.length - parts.length;
     if (rest > 0) parts.push('…и ещё ' + rest);
     parts.push('Добавьте их в ваш .dat или уберите из правил.');
-    // Jump to the offender in the geosite/geoip tree so the user sees it in place.
+    // Flash the offender in the tree it actually belongs to — a geoip-only
+    // miss must not scroll to a same-named geosite category.
+    const isGeoMiss = !missing.geosite.length && missing.geoip.length;
     const firstMissing = missing.geosite[0] || missing.geoip[0];
-    const row = document.querySelector('#geosite-tree .cat[data-code="' +
-      CSS.escape(String(firstMissing).toUpperCase()) + '"]')
-      || document.querySelector('#geoip-tiles .tile[data-key="geoip:' +
-        CSS.escape(String(firstMissing).toLowerCase()) + '"]');
+    const row = isGeoMiss
+      ? document.querySelector('#geoip-tiles .tile[data-key="geoip:' +
+          CSS.escape(String(firstMissing).toLowerCase()) + '"]')
+      : document.querySelector('#geosite-tree .cat[data-code="' +
+          CSS.escape(String(firstMissing).toUpperCase()) + '"]');
     if (row) {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       row.classList.remove('flash-missing');
@@ -1229,12 +1253,14 @@ async function validateCategoriesForExport(scheme, label) {
 function showForceCopyOption(scheme, label, msgText) {
   const wrap = $('#toast-wrap');
   const dup = [...wrap.children].find((t) => t.classList.contains('force-copy'));
-  if (dup) dup.remove();
+  if (dup) { clearTimeout(dup._timer); clearTimeout(dup._removeTimer); dup.remove(); }
   const t = el('div', 'toast err force-copy');
   const msg = el('span', 'fc-msg', msgText);
   const btn = el('button', 'btn primary fc-btn', 'Всё равно скопировать');
   btn.title = 'Скопировать ссылку без проверки категорий';
   btn.addEventListener('click', async () => {
+    clearTimeout(t._timer);
+    clearTimeout(t._removeTimer);
     const link = buildRoutingLink(scheme);
     if (!link) { toast('Нечего экспортировать', 'err'); return; }
     try {
@@ -1247,21 +1273,24 @@ function showForceCopyOption(scheme, label, msgText) {
   });
   t.append(msg, btn);
   wrap.appendChild(t);
-  t._timer = setTimeout(() => {
-    t.classList.add('leaving');
-    setTimeout(() => t.remove(), 250);
-  }, 30000);
+  // Long-lived on purpose (reading + deciding takes time), but still owned by
+  // the shared expiry helper so a replacement can cancel a pending removal.
+  armToastLifetime(t, 30000);
 }
 
 async function copyRoutingLink(scheme, label) {
-  if (!await validateCategoriesForExport(scheme, label)) return;
-  const link = buildRoutingLink(scheme);
-  if (!link) return toast('Нечего экспортировать', 'err');
+  // A throw anywhere in this chain must surface as a toast, never as a
+  // silently-swallowed rejection — that exact failure mode once hid the
+  // bypass button from users entirely.
   try {
+    if (!await validateCategoriesForExport(scheme, label)) return;
+    const link = buildRoutingLink(scheme);
+    if (!link) return toast('Нечего экспортировать', 'err');
     await window.api.clipboardWrite(link);
     toast(label + '-ссылка скопирована в буфер', 'ok');
   } catch (err) {
-    toast('Ошибка: ' + err.message, 'err');
+    console.error('export failed:', err);
+    toast('Ошибка экспорта: ' + err.message, 'err');
   }
 }
 
@@ -1626,7 +1655,6 @@ function createCatEl(cat, search) {
   // Green Direct / blue Proxy / red Block; the row text and the ✓ button
   // take the color of the section, mixed when present in several.
   applySectionTint(wrap, 'geosite', cat.code, addBtn);
-  if (wrap.dataset.sectint) { addBtn.textContent = '✓ geosite'; }
 
   head.append(chev, name, count, addBtn);
   const body = el('div', 'cat-body');
@@ -1882,7 +1910,10 @@ function createTileEl(c) {
       const cidrs = await window.api.geoipCidrs(c.code);
       body.textContent = '';
       if (!cidrs || !cidrs.length) { body.textContent = 'Список пуст'; return; }
-      for (const cidr of cidrs) body.appendChild(el('div', 'geoip-cidr-row', cidr));
+      // Big countries carry 25k+ CIDRs — build off-DOM, then attach once.
+      const frag = document.createDocumentFragment();
+      for (const cidr of cidrs) frag.appendChild(el('div', 'geoip-cidr-row', cidr));
+      body.appendChild(frag);
     } catch (err) {
       body.textContent = 'Ошибка: ' + err.message;
     }
@@ -2037,6 +2068,10 @@ document.querySelectorAll('.gf-subtab').forEach((tab) => {
     if (!$('#gf-src-url').value.trim() || gfState.srcMeta.length === 0) $('#gf-src-url').value = def;
     gfState.srcMeta = [];
     gfState.srcCache = {};
+    // Expanded CIDR panels belong to the previous mode's source.
+    document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
+    document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
+    document.querySelectorAll('.tile .tile-expand').forEach((b) => { b.textContent = '▾'; });
     $('#gf-src-status').textContent = '';
     $('#gf-src-search').value = '';
     gfRenderTree();
@@ -2070,6 +2105,11 @@ async function gfApplySource(payload) {
   const res = gfState.mode === 'geosite' ? await window.api.geositeLoad(payload) : await window.api.geoipLoad(payload);
   gfState.srcMeta = gfState.mode === 'geosite' ? res.categories : res.countries;
   gfState.srcCache = {};
+  // Expanded CIDR panels hold rows from the PREVIOUS source — drop them so a
+  // re-expand refetches instead of silently showing stale data.
+  document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
+  document.querySelectorAll('.tile.open .tile-expand').forEach((b) => { b.textContent = '▾'; });
+  document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
   status.className = 'status ok';
   status.textContent = `Загружено: ${gfState.srcMeta.length} категорий`;
   gfRenderTree();
@@ -2127,23 +2167,21 @@ function gfSrcTileEl(c) {
     exp.textContent = open ? '▴' : '▾';
     let body = tile.querySelector('.geoip-cidrs');
     if (!open) { if (body) body.style.display = 'none'; return; }
-    if (body) { body.style.display = ''; return; }
+    if (body) { body.style.display = ''; gfRefreshCidrMarks(body); return; }
     body = el('div', 'geoip-cidrs', 'Загрузка…');
     tile.appendChild(body);
     try {
       const cidrs = await gfLoadItems(c.code);
       body.textContent = '';
       if (!cidrs || !cidrs.length) { body.textContent = 'Список пуст'; return; }
-      // Which CIDRs are already mine — across ALL my geoip categories.
-      const mine = new Set();
-      for (const cat of gfState.cats.geoip) {
-        for (const it of cat.items) mine.add(String(it).toLowerCase());
-      }
+      const frag = document.createDocumentFragment();
+      const mine = gfOwnedCidrSet();
       for (const cidr of cidrs) {
         const row = el('div', 'geoip-cidr-row', cidr);
         if (mine.has(String(cidr).toLowerCase())) row.classList.add('owned');
-        body.appendChild(row);
+        frag.appendChild(row);
       }
+      body.appendChild(frag);
     } catch (err) {
       body.textContent = 'Ошибка: ' + err.message;
     }
@@ -2167,12 +2205,35 @@ function gfSrcTileEl(c) {
       if (!seen.has(key)) { target.items.push(cidr); seen.add(key); n++; }
     }
     gfContentOpen = true;
+    // The source tree must reflect the new ownership right away: green the
+    // tile and re-mark any CIDR rows already expanded under it.
+    tile.classList.add('gf-src-owned');
+    document.querySelectorAll('.geoip-cidrs').forEach(gfRefreshCidrMarks);
     gfRenderCatList();
     gfRenderCatContent();
     scheduleSave();
     toast('geoip:' + c.code + ': добавлено ' + n, 'ok');
   });
   return tile;
+}
+
+// All CIDRs the user already owns, across every geoip category.
+function gfOwnedCidrSet() {
+  const mine = new Set();
+  for (const cat of gfState.cats.geoip) {
+    for (const it of cat.items) mine.add(String(it).toLowerCase());
+  }
+  return mine;
+}
+
+// Re-apply owned-marks to an expanded CIDR panel (data is cached in gfState).
+function gfRefreshCidrMarks(body) {
+  const rows = body.querySelectorAll('.geoip-cidr-row');
+  if (!rows.length) return;
+  const mine = gfOwnedCidrSet();
+  for (const row of rows) {
+    row.classList.toggle('owned', mine.has(row.textContent.trim().toLowerCase()));
+  }
 }
 
 async function gfRunSearch() {
@@ -2182,6 +2243,8 @@ async function gfRunSearch() {
   if (!q) { gfRenderTree(); return; }
   if (gfState.mode === 'geoip') {
     // GeoIP has no domain content search — fall back to country-code filter.
+    // Tiles, not list rows: same view and click-to-add behaviour as the
+    // unfiltered source grid above.
     const filter = q.toUpperCase();
     tree.innerHTML = '';
     const list = gfState.srcMeta.filter((c) => c.code.includes(filter));
@@ -2190,7 +2253,9 @@ async function gfRunSearch() {
       status.textContent = `По «${q}» ничего не найдено`;
       return;
     }
-    for (const cat of list) tree.appendChild(gfSrcCatEl(cat));
+    const grid = el('div', 'tiles gf-geoip-tiles');
+    for (const c of list) grid.appendChild(gfSrcTileEl(c));
+    tree.appendChild(grid);
     status.className = 'status';
     status.textContent = `Найдено стран: ${list.length}`;
     return;
@@ -2232,7 +2297,7 @@ function gfSearchCatEl(r) {
   // Same presence mark as the plain source list.
   if (gfState.cats[gfState.mode].some((c) => c.code === r.code)) {
     wrap.classList.add('gf-src-owned');
-    addAll.textContent = '✓ geosite';
+    addAll.textContent = gfState.mode === 'geosite' ? '✓ geosite' : '✓ geoip';
     addAll.title = 'Категория уже в «Моих категориях»';
   }
   // Reuse the standard source body renderer (matches are already domain objects).
@@ -2288,7 +2353,7 @@ function gfSrcCatEl(cat) {
   // expands it to see which domains are marked). Styled like .cat-added.
   if (gfState.cats[gfState.mode].some((c) => c.code === cat.code)) {
     wrap.classList.add('gf-src-owned');
-    addAll.textContent = '✓ geosite';
+    addAll.textContent = gfState.mode === 'geosite' ? '✓ geosite' : '✓ geoip';
     addAll.title = 'Категория уже в «Моих категориях»';
   }
 
@@ -2870,6 +2935,9 @@ async function gfImportDat(payload, source) {
     gfState.selected = cats.length ? cats[0].code : null;
     gfContentOpen = false;
     gfState.srcCache = {}; // the .dat store changed — invalidate cached domains
+    document.querySelectorAll('.geoip-cidrs').forEach((b) => b.remove());
+    document.querySelectorAll('.tile.open').forEach((t) => t.classList.remove('open'));
+    document.querySelectorAll('.tile .tile-expand').forEach((b) => { b.textContent = '▾'; });
     scheduleSave();
     gfRenderCatList();
     gfRenderCatContent();

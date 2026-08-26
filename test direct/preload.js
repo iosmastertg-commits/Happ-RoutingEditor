@@ -23,5 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   // Takes { version } — main resolves the download URL itself.
   updateInstall: (payload) => ipcRenderer.invoke('update:install', payload),
   appVersion: () => ipcRenderer.invoke('app:getVersion'),
-  onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, label, pct) => cb(label, pct))
+  // Returns an unsubscribe function — repeated calls must not stack listeners.
+  onUpdateProgress: (cb) => {
+    const handler = (_e, label, pct) => cb(label, pct);
+    ipcRenderer.on('update:progress', handler);
+    return () => ipcRenderer.removeListener('update:progress', handler);
+  }
 });

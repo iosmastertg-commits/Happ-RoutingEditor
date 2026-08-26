@@ -476,12 +476,15 @@ ipcMain.handle('geosite:domains', async (_e, code) => {
 // boolean per code goes back.
 ipcMain.handle('geo:coveredBy', async (_e, payload) => {
   const kind = payload && payload.kind === 'geoip' ? 'geoip' : 'geosite';
-  const codes = Array.isArray(payload && payload.codes) ? payload.codes : [];
+  // Hard caps: a hostile/buggy renderer must not be able to freeze the main
+  // process by sending unbounded arrays.
+  const codes = (Array.isArray(payload && payload.codes) ? payload.codes : []).slice(0, 5000).map(String);
   const haveList = Array.isArray(payload && payload.have) ? payload.have : [];
+  if (haveList.length > 200000) return {};
   const have = new Set(haveList.map((v) => String(v).toLowerCase()));
-  const out = {};
-  for (const raw of codes) {
-    const code = String(raw || '');
+  const out = Object.create(null);   // no __proto__ key collisions
+  for (const raw of codes.slice(0, 5000)) {
+    const code = raw || '';
     let items;
     if (kind === 'geoip') {
       const c = geoipStore.find((x) => x.code.toUpperCase() === code.toUpperCase());
@@ -617,6 +620,9 @@ ipcMain.handle('update:check', async () => {
 ipcMain.handle('app:getVersion', () => app.getVersion());
 
 ipcMain.handle('update:install', async (e, payload) => {
+  // Dev opt-out (RFE_ALLOW_SECOND) means another instance may hold the same
+  // .exe — installing from two copies at once would corrupt it.
+  if (process.env.RFE_ALLOW_SECOND) throw new Error('Обновление отключено в dev-режиме (RFE_ALLOW_SECOND)');
   // payload: { version } only. The download URL is NOT accepted from the
   // renderer — main re-derives it from the release it verified itself, so a
   // compromised renderer can't choose the binary that replaces our .exe.

@@ -1234,20 +1234,36 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .tile.in-direct.in-proxy,
 .tile.in-direct.in-block,
 .tile.in-proxy.in-block { --tint: color-mix(in srgb, var(--green) 34%, color-mix(in srgb, var(--accent) 33%, var(--red))); }
-.tiles .tile[class*="in-"] { border-color: var(--tint); }
-.tiles .tile[class*="in-"]:hover { border-color: var(--tint); }
-.tiles .tile[class*="in-"] .tile-code { color: var(--tint); font-weight: 600; }
+/* :is() instead of [class*="in-"] — the substring form would silently match
+   any future class containing "in-" (e.g. "main-flag"). */
+.tiles .tile:is(.in-direct, .in-proxy, .in-block) { border-color: var(--tint); }
+.tiles .tile:is(.in-direct, .in-proxy, .in-block) .tile-code { color: var(--tint); font-weight: 600; }
 /* The tint is the constant truth — it beats the plain added-green (which
    would otherwise recolor the tile when its own section tab is open). */
-.tiles .tile.added[class*="in-"] {
+.tiles .tile.added:is(.in-direct, .in-proxy, .in-block) {
   border-color: var(--tint);
   background: color-mix(in srgb, var(--tint) 10%, transparent);
   box-shadow: 0 0 16px color-mix(in srgb, var(--tint) 45%, transparent);
 }
-.tiles .tile.added[class*="in-"] .tile-code { color: var(--tint); }
+.tiles .tile.added:is(.in-direct, .in-proxy, .in-block) .tile-code { color: var(--tint); }
 .theme-glass .tile.in-direct { --tint: #35d07f; }
 .theme-glass .tile.in-proxy  { --tint: #6ea8ff; }
 .theme-glass .tile.in-block  { --tint: #ff6b6b; }
+/* Mixed sections too — these must come after the single-section overrides
+   above or the plain colors silently win in this theme. */
+.theme-glass .tile.in-direct.in-proxy,
+.theme-glass .tile.in-direct.in-block,
+.theme-glass .tile.in-proxy.in-block {
+  --tint: color-mix(in srgb, #35d07f 34%, color-mix(in srgb, #6ea8ff 33%, #ff6b6b));
+}
+.theme-glass .cat.in-direct.in-proxy,
+.theme-glass .cat.in-direct.in-block,
+.theme-glass .cat.in-proxy.in-block,
+.theme-glass .dom.in-direct.in-proxy,
+.theme-glass .dom.in-direct.in-block,
+.theme-glass .dom.in-proxy.in-block {
+  --tint: color-mix(in srgb, #35d07f 34%, color-mix(in srgb, #6ea8ff 33%, #ff6b6b));
+}
 
 /* Expanded CIDR list inside an editor geoip tile. The tile grows in place;
    the grid stretches the row it's in, so cap the panel and scroll inside. */
@@ -1304,6 +1320,16 @@ input[type="text"]:focus, textarea:focus, select:focus {
   animation: missing-flash 0.8s ease 3;
 }
 .cat.flash-missing .cat-name { color: var(--red); font-weight: 600; }
+/* Same blink for a geoip country tile the export check flagged. Must out-rank
+   even the added+tint combo (0,4,0) — the red warning matters most exactly on
+   tiles that are already in the rules. */
+.tiles .tile.flash-missing,
+.tiles .tile.added.flash-missing {
+  border-color: var(--red);
+  animation: missing-flash 0.8s ease 3;
+}
+.tiles .tile.flash-missing .tile-code,
+.tiles .tile.added.flash-missing .tile-code { color: var(--red); font-weight: 600; }
 
 /* ---------- Geofiles: source rows owned by "my categories" ---------- */
 /* The whole source category/country row turns editor-green when it already
